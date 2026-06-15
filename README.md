@@ -6,5 +6,9 @@
 
 
 
+\## Diagrama en Excalidraw
 
+
+
+\[Ver diagrama](https://excalidraw.com/#json=LGOu8FaIBGP1mWAqq2GDl,4XjMZUIbbWtyVVLBS2Zz2Q)
 
