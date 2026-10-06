@@ -232,25 +232,25 @@ El presente informe consolida los resultados de la auditoría y análisis compar
 
 ## Matriz Resumen de Inconsistencias y Hallazgos
 
-| ID | Tipo | Documentos Afectados | Título / Proceso | Nivel de Impacto |
-| :---: | :---: | :--- | :--- | :---: |
-| **INC-01** | Inconsistencia Real | Doc General / CU-07 | Desactivación vs. Eliminación física de Mascotas | **Alto** |
-| **INC-02** | Inconsistencia Real | Doc General / CU-04 | Validación de Alta Médica vs. Evaluación in situ | **Medio** |
-| **INC-03** | Inconsistencia Real | Doc General / CU-01..11 | Colisión en identificación de Reglas de Negocio (RN) | **Medio** |
-| **INC-04** | Inconsistencia Real | Doc General / CU-01,10,11 | Roles definidos en RNF vs. Casos de Uso | **Bajo** |
-| **INF-01** | Información Faltante | Doc General / CU-01 | Bloqueo por 5 intentos fallidos en login | **Alto** |
-| **INF-02** | Información Faltante | Doc General / General | Desbloqueo de cuentas y gestión de contraseñas | **Medio** |
-| **INF-03** | Información Faltante | Doc General / CU-07 | Reasignación de mascota a otro dueño | **Alto** |
-| **INF-04** | Información Faltante | Doc General / CU-04 | Advertencia por cambios sin guardar en atención | **Medio** |
-| **INF-05** | Información Faltante | Doc General / CU-06, CU-11 | Fecha y motivo de cancelación de turnos | **Medio** |
-| **INF-06** | Información Faltante | Doc General / General | Procedimientos programados y consentimientos | **Medio** |
-| **INF-07** | Información Faltante | Doc General / CU-04 | Actualización explícita de fecha de última visita | **Bajo** |
-| **AMB-01** | Ambigüedad | Doc General / CU-03, CU-04 | Carga diferida de estudios vs. Inmutabilidad de atención | **Alto** |
-| **AMB-02** | Ambigüedad | CU-02, CU-08 vs. CU-07 | Asimetría de casos de uso y permisos en Dueños vs Mascotas | **Medio** |
-| **AMB-03** | Ambigüedad | Docx previo / CU-03, CU-04 | Relaciones `<<include>>` / `<<extend>>` vs modelo API | **Medio** |
-| **MEJ-01** | Posible Mejora | CU-01 a CU-11 | Enfoque de interacción de usuario en UI | **Bajo** |
-| **MEJ-02** | Posible Mejora | CU-10, CU-11 | Detalle de métricas en reportes | **Bajo** |
-| **MEJ-03** | Posible Mejora | CU-07, CU-08 | Estandarización HTTP en bajas lógicas | **Bajo** |
+| ID | Tipo | Documentos Afectados | Título / Proceso | Nivel de Impacto | Resuelto | Decisión tomada / Resolución |
+| :---: | :---: | :--- | :--- | :---: | :---: | :--- |
+| **INC-01** | Inconsistencia Real | Doc General / CU-07 | Desactivación vs. Eliminación física de Mascotas | **Alto** | ☐ | Pendiente de revisión |
+| **INC-02** | Inconsistencia Real | Doc General / CU-04 | Validación de Alta Médica vs. Evaluación in situ | **Medio** | ☐ | Pendiente de revisión |
+| **INC-03** | Inconsistencia Real | Doc General / CU-01..11 | Colisión en identificación de Reglas de Negocio (RN) | **Medio** | ☐ | Pendiente de revisión |
+| **INC-04** | Inconsistencia Real | Doc General / CU-01,10,11 | Roles definidos en RNF vs. Casos de Uso | **Bajo** | ☐ | Pendiente de revisión |
+| **INF-01** | Información Faltante | Doc General / CU-01 | Bloqueo por 5 intentos fallidos en login | **Alto** | ☐ | Pendiente de revisión |
+| **INF-02** | Información Faltante | Doc General / General | Desbloqueo de cuentas y gestión de contraseñas | **Medio** | ☐ | Pendiente de revisión |
+| **INF-03** | Información Faltante | Doc General / CU-07 | Reasignación de mascota a otro dueño | **Alto** | ☐ | Pendiente de revisión |
+| **INF-04** | Información Faltante | Doc General / CU-04 | Advertencia por cambios sin guardar en atención | **Medio** | ☐ | Pendiente de revisión |
+| **INF-05** | Información Faltante | Doc General / CU-06, CU-11 | Fecha y motivo de cancelación de turnos | **Medio** | ☐ | Pendiente de revisión |
+| **INF-06** | Información Faltante | Doc General / General | Procedimientos programados y consentimientos | **Medio** | ☐ | Pendiente de revisión |
+| **INF-07** | Información Faltante | Doc General / CU-04 | Actualización explícita de fecha de última visita | **Bajo** | ☐ | Pendiente de revisión |
+| **AMB-01** | Ambigüedad | Doc General / CU-03, CU-04 | Carga diferida de estudios vs. Inmutabilidad de atención | **Alto** | ☐ | Pendiente de revisión |
+| **AMB-02** | Ambigüedad | CU-02, CU-08 vs. CU-07 | Asimetría de casos de uso y permisos en Dueños vs Mascotas | **Medio** | ☐ | Pendiente de revisión |
+| **AMB-03** | Ambigüedad | Docx previo / CU-03, CU-04 | Relaciones `<<include>>` / `<<extend>>` vs modelo API | **Medio** | ☐ | Pendiente de revisión |
+| **MEJ-01** | Posible Mejora | CU-01 a CU-11 | Enfoque de interacción de usuario en UI | **Bajo** | ☐ | Pendiente de revisión |
+| **MEJ-02** | Posible Mejora | CU-10, CU-11 | Detalle de métricas en reportes | **Bajo** | ☐ | Pendiente de revisión |
+| **MEJ-03** | Posible Mejora | CU-07, CU-08 | Estandarización HTTP en bajas lógicas | **Bajo** | ☐ | Pendiente de revisión |
 
 ---
 *Fin del informe. Esperando revisión del equipo para proceder con las modificaciones acordadas.*
