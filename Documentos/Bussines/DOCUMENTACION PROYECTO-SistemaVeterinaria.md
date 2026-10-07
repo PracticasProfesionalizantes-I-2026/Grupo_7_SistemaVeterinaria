@@ -139,7 +139,7 @@ Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, u
 ## 5.1 Requerimientos Funcionales
 
 - El sistema deberá permitir registrar, consultar y modificar dueños, manteniendo sus datos de contacto y responsabilidad sobre las mascotas asociadas.
-- El sistema deberá permitir registrar, consultar, modificar y desactivar mascotas/pacientes, asociándolas a un dueño previamente registrado.
+- El sistema deberá permitir registrar, consultar, modificar y desactivar mascotas/pacientes asociadas a un dueño previamente registrado. La desactivación será de carácter lógico y conservará la historia clínica y los registros históricos asociados a la mascota. Las mascotas inactivas podrán ser consultadas, pero no podrán recibir nuevos turnos ni nuevas atenciones médicas.
 - El sistema deberá permitir reasignar una mascota a otro dueño en casos de cambio de titularidad o actualización de responsabilidad sobre el paciente.
 - El sistema deberá permitir buscar un dueño y visualizar las mascotas vinculadas a su registro.
 - El sistema deberá permitir registrar atenciones médicas asociadas a un paciente, almacenando fecha, motivo de consulta y observaciones.
