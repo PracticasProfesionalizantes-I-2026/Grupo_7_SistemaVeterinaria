@@ -14,7 +14,7 @@ Estos inconvenientes evidencian la necesidad de contar con un sistema informáti
 
 La implementación de un sistema informático en la clínica veterinaria Patitas permitirá superar las limitaciones actuales mediante la centralización de la información en una única plataforma, asegurando consistencia y actualización automática de los datos clínicos.
 
-El sistema incorporará reglas de negocio automatizadas, garantizando el cumplimiento de condiciones clave, como la validación de “Alta Médica” para vacunación y la actualización de la última visita. Además, permitirá el monitoreo y detección temprana de alertas de salud, mejorando el seguimiento de los pacientes.
+El sistema incorporará reglas de negocio automatizadas, garantizando el cumplimiento de condiciones clave, como la evaluación de aptitud clínica para vacunación y la actualización de la última visita. Además, permitirá el monitoreo y detección temprana de alertas de salud, mejorando el seguimiento de los pacientes.
 
 Se optimizará la gestión mediante la automatización de turnos para tratamientos crónicos, junto con un control de roles y permisos, restringiendo acciones críticas y asegurando el cumplimiento normativo, incluyendo la validación de consentimientos digitales en cirugías.
 
@@ -28,7 +28,7 @@ Riesgo 1: Resistencia al cambio del personal (Severidad: Alta)
 Mitigación: Capacitaciones iniciales, acompañamiento en el uso del sistema y diseño de una interfaz intuitiva que facilite su adopción.
 
 Riesgo 2: Errores en el uso del sistema (Severidad: Media)
-Mitigación: Se implementarán validaciones automáticas dentro del sistema (por ejemplo, el alta médica) y se darán guías de uso claras para minimizar errores.
+Mitigación: Se implementarán validaciones automáticas dentro del sistema (por ejemplo, la evaluación de aptitud clínica para vacunación) y se darán guías de uso claras para minimizar errores.
 
 ### TÉCNICO
 
@@ -52,7 +52,7 @@ Riesgo 7: Pérdida de seguimiento en tratamientos crónicos (Severidad: Alta)
 Mitigación: El sistema incorporará recordatorios y controles de agenda para facilitar el seguimiento periódico de los pacientes.
 
 Riesgo 8: Aplicación de vacunas sin validación del estado clínico del animal (Severidad: Alta)
-Mitigación: El sistema bloqueará automáticamente la vacunación cuando el paciente no posea “Alta Médica” vigente.
+Mitigación: El sistema bloqueará el registro de la vacunación cuando el paciente no haya sido evaluado como APTO para vacunación durante la atención médica actual mediante la checklist clínica.
 
 ### EXTERNO
 
@@ -124,7 +124,7 @@ La versión 1.0 del sistema para la clínica veterinaria “Patitas” se enfoca
 
 En esta primera versión, el sistema permitirá la gestión de pacientes y fichas de mascotas (registro y actualización de información de mascotas y dueños), el registro básico de atenciones clínicas (carga y consulta inicial del historial clínico) y la gestión de turnos y agenda clínica (asignación, modificación y cancelación de turnos con validación de disponibilidad horaria, incluyendo el registro de la consulta).
 
-Además, se incorporará el control de “Alta Médica” para la aplicación de vacunas (validación clínica básica) y el acceso mediante login para el personal autorizado (autenticación de usuarios).
+Además, se incorporará el control y registro de la evaluación de aptitud clínica (checklist APTO/NO APTO) para la aplicación de vacunas durante la atención médica y el acceso mediante login para el personal autorizado (autenticación de usuarios).
 
 ## 4.2 Limitaciones y exclusiones (Out of Scope)
 
@@ -149,7 +149,7 @@ Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, u
 - El sistema deberá validar la disponibilidad horaria al asignar turnos.
 - El sistema deberá permitir modificar y cancelar turnos.
 - El sistema deberá permitir el registro y autenticación de usuarios mediante login.
-- El sistema deberá validar el estado de ‘Alta Médica’ antes de permitir la aplicación de vacunas.
+- El sistema deberá validar que el paciente haya sido evaluado como APTO para vacunación mediante la checklist clínica durante la atención médica actual antes de permitir el registro de una vacuna.
 - El sistema deberá permitir hasta cinco (5) intentos fallidos de autenticación. Al superar dicho límite, la cuenta del usuario será bloqueada.
 - El sistema deberá mostrar al veterinario su agenda diaria de atenciones y procedimientos programados.
 - El sistema deberá permitir registrar dueños y asociarles una o más mascotas. Al registrar una mascota, el sistema generará automáticamente su historia clínica.
@@ -177,6 +177,6 @@ RN-01: Las atenciones médicas registradas en la historia clínica no podrán se
 
 RN-02. Las prescripciones, estudios y vacunaciones registrados durante una atención médica quedarán asociados automáticamente a dicha atención y a la historia clínica del paciente.
 
-RN-03. La evaluación de aptitud para vacunación solo podrá realizarse durante el registro de una atención médica.
+RN-03. La evaluación de aptitud para vacunación solo podrá realizarse durante el registro de una atención médica mediante una checklist clínica, quedando su resultado (APTO o NO APTO) registrado junto con la consulta.
 
-RN-04. Una vacuna sólo podrá registrarse si el paciente fue evaluado como apto para la vacunación.
+RN-04. Una vacuna sólo podrá registrarse si el paciente fue evaluado como APTO para vacunación en la atención médica actual. Un resultado NO APTO impedirá el registro de la vacuna, pero no impedirá guardar la atención médica.

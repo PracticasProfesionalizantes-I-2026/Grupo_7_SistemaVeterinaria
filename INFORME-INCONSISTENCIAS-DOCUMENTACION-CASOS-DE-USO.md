@@ -234,8 +234,8 @@ El presente informe consolida los resultados de la auditoría y análisis compar
 
 | ID | Tipo | Documentos Afectados | Título / Proceso | Nivel de Impacto | Resuelto | Decisión tomada / Resolución |
 | :---: | :---: | :--- | :--- | :---: | :---: | :--- |
-| **INC-01** | Inconsistencia Real | Doc General / CU-07 | Desactivación vs. Eliminación física de Mascotas | **Alto** | ☐ | Pendiente de revisión |
-| **INC-02** | Inconsistencia Real | Doc General / CU-04 | Validación de Alta Médica vs. Evaluación in situ | **Medio** | ☐ | Pendiente de revisión |
+| **INC-01** | Inconsistencia Real | Doc General / CU-07 | Desactivación vs. Eliminación física de Mascotas | **Alto** | ☑ | Se adopta la baja lógica de mascotas. Las mascotas no se eliminan físicamente, sino que pasan a estado Inactivo. Conservan su historia clínica y todos sus registros históricos y continúan disponibles para consulta. Mientras permanezcan inactivas no podrán recibir nuevos turnos ni nuevas atenciones médicas. Se adecuaron los casos de uso relacionados para reflejar esta decisión. |
+| **INC-02** | Inconsistencia Real | Doc General / CU-04 | Validación de Alta Médica vs. Evaluación in situ | **Medio** | ☑ | Se elimina el concepto de Alta Médica vigente como condición previa para la vacunación. La aptitud para vacunación se evalúa durante la atención médica mediante una checklist clínica y el resultado queda registrado como APTO o NO APTO. Solo un resultado APTO habilita el registro de la vacunación. Un resultado NO APTO impide registrar la vacuna, pero no impide guardar normalmente la atención médica. |
 | **INC-03** | Inconsistencia Real | Doc General / CU-01..11 | Colisión en identificación de Reglas de Negocio (RN) | **Medio** | ☐ | Pendiente de revisión |
 | **INC-04** | Inconsistencia Real | Doc General / CU-01,10,11 | Roles definidos en RNF vs. Casos de Uso | **Bajo** | ☐ | Pendiente de revisión |
 | **INF-01** | Información Faltante | Doc General / CU-01 | Bloqueo por 5 intentos fallidos en login | **Alto** | ☐ | Pendiente de revisión |
