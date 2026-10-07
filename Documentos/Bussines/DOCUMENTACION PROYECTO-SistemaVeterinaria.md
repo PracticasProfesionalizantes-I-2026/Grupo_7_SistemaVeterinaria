@@ -111,7 +111,7 @@ Permite registrar y validar la documentación necesaria para intervenciones, inc
 
 | **Stakeholder** | **Beneficio y valor percibido** | **Actitudes** | **Funciones de interés mayor** | **Restricciones** |
 | --- | --- | --- | --- | --- |
-| Dueño de la clínica | Mejora organización, aumento de ingresos, información centralizada y control total del negocio | Interesado en el sistema y exigentes con el resultado, pero preocupado por costos | Reportes de ingresos y productividad, control de turnos y gestión general | Presupuesto limitado, que el sistema no cumpla con las expectativas y que sea difícil de utilizar |
+| Administrador (dueño de la clínica) | Mejora organización, aumento de ingresos, información centralizada y control total del negocio | Interesado en el sistema y exigentes con el resultado, pero preocupado por costos | Reportes de ingresos y productividad, control de turnos y gestión general | Presupuesto limitado, que el sistema no cumpla con las expectativas y que sea difícil de utilizar |
 | Veterinarios | Acceso rápido al historial clínico, menos errores de seguimiento, mejor atención y seguimiento de pacientes. | Interesados, pero pueden resistirse al cambio. Buscan rapidez y simplicidad. | Historias clínicas, registro de atenciones, vacunaciones y agenda diaria. | Falta de tiempo, sistema lento o complejo y miedo a depender mucho del sistema, |
 | Recepcionista | Reducción de errores administrativos, organización más clara y agilidad en atención al cliente. | Miedo al cambio y necesidad de capacitación | Gestión de turnos, registro de pacientes y agenda diaria | Poco conocimiento tecnológico, necesidad de un sistema simple e intuitivo y dependencia de que el sistema funcione más rápido. |
 | Clientes (dueños de mascotas) | Atención más rápida, mejor seguimiento de sus mascotas y menos errores en turnos | Alta expectativa de rapidez y exigentes con el servicio | Turnos organizados, historial claro de su mascota y información confiable | Demoras en atención, errores en turnos y falta de comunicación |
@@ -161,7 +161,7 @@ Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, u
 ## 5.2 Requerimientos No Funcionales
 
 - El sistema deberá implementar autenticación mediante usuario y contraseña, garantizando que solo usuarios registrados puedan acceder.
-- El sistema deberá aplicar control de acceso basado en roles, restringiendo funcionalidades según el perfil del usuario (recepción o veterinario).
+- El sistema deberá aplicar control de acceso basado en roles, restringiendo las funcionalidades disponibles según el perfil del usuario: Recepcionista, Veterinario o Administrador.
 - El sistema deberá garantizar la protección de los datos clínicos y personales mediante mecanismos que eviten accesos no autorizados.
 - Las operaciones de consulta de pacientes, turnos e historias clínicas deberán responder en un tiempo máximo de 2 segundos en condiciones normales.
 - El sistema deberá presentar la información de forma organizada, facilitando la lectura de historias clínicas y agendas.

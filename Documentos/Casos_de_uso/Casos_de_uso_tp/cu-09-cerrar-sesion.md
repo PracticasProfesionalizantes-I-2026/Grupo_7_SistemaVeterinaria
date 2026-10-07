@@ -7,7 +7,7 @@
 | --- | --- |
 | **ID del Caso de Uso** | CU-09 |
 | **Nombre** | Cerrar Sesión |
-| **Actor Principal** | Recepcionista / Veterinario/a / Dueño de la Veterinaria |
+| **Actor Principal** | Recepcionista / Veterinario/a / Administrador |
 | **Alcance / Nivel** | Sistema; meta de usuario |
 | **Stakeholders e intereses** | Usuario del Sistema → cerrar de forma segura su cuenta en terminales compartidas; Administración → garantizar que las sesiones finalizadas no puedan ser reutilizadas mediante navegación del navegador o reenvío de tokens |
 | **Disparador (Trigger)** | El usuario selecciona la opción "Cerrar Sesión" desde el menú de usuario |

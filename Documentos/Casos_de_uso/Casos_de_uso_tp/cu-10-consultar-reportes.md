@@ -7,9 +7,9 @@
 | --- | --- |
 | **ID del Caso de Uso** | CU-10 |
 | **Nombre** | Consultar Reportes |
-| **Actor Principal** | Dueño de la Veterinaria (Administrador) |
+| **Actor Principal** | Administrador |
 | **Alcance / Nivel** | Sistema; meta de usuario |
-| **Stakeholders e intereses** | Dueño de la Veterinaria → acceder a los reportes consolidados de atenciones, vacunas, dueños, mascotas y turnos para tomar decisiones gerenciales; Clínica Veterinaria → garantizar el control de acceso a información estadística confidencial |
+| **Stakeholders e intereses** | Administrador (dueño/responsable de la veterinaria) → acceder a los reportes consolidados de atenciones, vacunas, dueños, mascotas y turnos para tomar decisiones gerenciales; Clínica Veterinaria → garantizar el control de acceso a información estadística confidencial |
 | **Disparador (Trigger)** | El administrador selecciona la opción "Reportes" desde el menú principal para consultar el histórico de reportes |
 | **Prioridad / Frecuencia** | Media; baja/media frecuencia (consultas semanales o mensuales) |
 | **Reglas de negocio relacionadas** | Ninguna (aplica control de acceso por rol y consulta de solo lectura) |
@@ -17,7 +17,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al administrador o dueño de la veterinaria consultar los reportes generados recientemente para visualizar métricas e información consolidada sobre las atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños registrados y turnos del sistema.
+Permite al Administrador (dueño/responsable de la veterinaria) consultar los reportes generados recientemente para visualizar métricas e información consolidada sobre las atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños registrados y turnos del sistema.
 
 ### 2. PRECONDICIONES
 - El actor debe haber iniciado sesión con un Token JWT válido que contenga el claim de rol `Administrador` o `DuenoVeterinaria`.
@@ -37,7 +37,7 @@ Permite al administrador o dueño de la veterinaria consultar los reportes gener
   2. El middleware de autenticación rechaza la petición.
   3. El Sistema devuelve un código **401 Unauthorized**. Fin del caso de uso.
 
-* **2a. Usuario sin rol de Administrador / Dueño (HTTP 403 Forbidden):**
+* **2a. Usuario sin rol de Administrador (HTTP 403 Forbidden):**
   1. Si en el Paso 2 el usuario autenticado tiene un rol distinto (ej. `Recepcionista` o `Veterinario`).
   2. La Capa de Presentación (filtro de autorización) deniega el acceso al recurso.
   3. El Sistema devuelve un código **403 Forbidden** con el mensaje: `"Acceso denegado: se requieren permisos de Administrador."`. Fin del caso de uso.

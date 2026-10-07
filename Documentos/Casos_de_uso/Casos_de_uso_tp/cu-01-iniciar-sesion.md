@@ -7,7 +7,7 @@
 | --- | --- |
 | **ID del Caso de Uso** | CU-01 |
 | **Nombre** | Iniciar Sesión |
-| **Actor Principal** | Recepcionista / Veterinario/a / Dueño de la Veterinaria |
+| **Actor Principal** | Recepcionista / Veterinario/a / Administrador |
 | **Alcance / Nivel** | Sistema; meta de usuario |
 | **Stakeholders e intereses** | Personal de la Veterinaria → ingresar de forma segura a sus módulos operativos según su rol; Administración → garantizar la seguridad, auditoría de accesos y protección de datos mediante autenticación por JWT |
 | **Disparador (Trigger)** | El usuario ingresa sus credenciales en la pantalla de inicio de sesión y selecciona "Iniciar Sesión" |
@@ -17,7 +17,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Dueño) autenticarse en el sistema mediante sus credenciales (usuario/email y contraseña) para obtener un token de sesión JWT y acceder a las funciones permitidas según su rol.
+Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Administrador) autenticarse en el sistema mediante sus credenciales (usuario/email y contraseña) para obtener un token de sesión JWT y acceder a las funciones permitidas según su rol.
 
 ### 2. PRECONDICIONES
 - El usuario debe estar previamente registrado en la tabla `Usuarios` del sistema.

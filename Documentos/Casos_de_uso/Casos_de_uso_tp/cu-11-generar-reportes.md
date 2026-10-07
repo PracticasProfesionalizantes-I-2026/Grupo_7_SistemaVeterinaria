@@ -7,9 +7,9 @@
 | --- | --- |
 | **ID del Caso de Uso** | CU-11 |
 | **Nombre** | Generar Reportes |
-| **Actor Principal** | Dueño de la Veterinaria (Administrador) |
+| **Actor Principal** | Administrador |
 | **Alcance / Nivel** | Sistema; meta de usuario |
-| **Stakeholders e intereses** | Dueño de la Veterinaria → obtener métricas agregadas de atenciones, vacunas, turnos, altas de pacientes y dueños en períodos determinados; Clínica Veterinaria → auditar el desempeño clínico y comercial y guardar registro histórico |
+| **Stakeholders e intereses** | Administrador (dueño/responsable de la veterinaria) → obtener métricas agregadas de atenciones, vacunas, turnos, altas de pacientes y dueños en períodos determinados; Clínica Veterinaria → auditar el desempeño clínico y comercial y guardar registro histórico |
 | **Disparador (Trigger)** | El administrador selecciona la opción "Generar Reporte" desde la sección de reportes, completa los parámetros y solicita su emisión |
 | **Prioridad / Frecuencia** | Media; baja/media frecuencia (generación periódica bajo demanda) |
 | **Reglas de negocio relacionadas** | Ninguna (aplica control de acceso por rol, validación de parámetros y persistencia) |
@@ -17,7 +17,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al administrador o dueño de la veterinaria generar nuevos reportes estadísticos y operacionales del sistema para consolidar información sobre atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños dados de alta y turnos en un período específico, registrando el resultado en el historial de reportes.
+Permite al Administrador (dueño/responsable de la veterinaria) generar nuevos reportes estadísticos y operacionales del sistema para consolidar información sobre atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños dados de alta y turnos en un período específico, registrando el resultado en el historial de reportes.
 
 ### 2. PRECONDICIONES
 - El actor debe haber iniciado sesión y poseer un Token JWT con claim de rol `Administrador` o `DuenoVeterinaria`.
