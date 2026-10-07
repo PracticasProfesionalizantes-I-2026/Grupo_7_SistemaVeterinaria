@@ -1,7 +1,7 @@
 # Caso de Uso: Consultar Reportes
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del módulo de auditoría y consulta de reportes con regla de autorización por rol exclusivo (**RN-01**) e inmutabilidad de solo lectura (**RN-02**).
+> Implementación del módulo de auditoría y consulta de reportes con control de autorización por rol de Administrador y operaciones de solo lectura.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Dueño de la Veterinaria → acceder a los reportes consolidados de atenciones, vacunas, dueños, mascotas y turnos para tomar decisiones gerenciales; Clínica Veterinaria → garantizar el control de acceso a información estadística confidencial |
 | **Disparador (Trigger)** | El administrador selecciona la opción "Reportes" desde el menú principal para consultar el histórico de reportes |
 | **Prioridad / Frecuencia** | Media; baja/media frecuencia (consultas semanales o mensuales) |
-| **Reglas de negocio relacionadas** | RN-01 (acceso restringido exclusivamente a usuarios con rol de Administrador / Dueño de Veterinaria); RN-02 (la consulta es de solo lectura y no altera la información almacenada) |
+| **Reglas de negocio relacionadas** | Ninguna (aplica control de acceso por rol y consulta de solo lectura) |
 
 ---
 
@@ -20,13 +20,13 @@
 Permite al administrador o dueño de la veterinaria consultar los reportes generados recientemente para visualizar métricas e información consolidada sobre las atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños registrados y turnos del sistema.
 
 ### 2. PRECONDICIONES
-- El actor debe haber iniciado sesión con un Token JWT válido que contenga el claim de rol `Administrador` o `DuenoVeterinaria` (**RN-01**).
+- El actor debe haber iniciado sesión con un Token JWT válido que contenga el claim de rol `Administrador` o `DuenoVeterinaria`.
 - La Capa de Persistencia debe estar operativa y accesible.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `GET /api/reportes` (para el listado) o `GET /api/reportes/{id}` (para el detalle de un reporte específico) con el Token JWT en el encabezado `Authorization`.
-2. La **Capa de Presentación** (`ReportesController.GetReporteById`) valida los permisos del rol mediante el atributo `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` (**RN-01**) y comprueba el formato del parámetro de ruta.
-3. La **Capa de Negocio** (`ReporteService.GetReporteByIdAsync`) recupera el reporte solicitado de la base de datos sin modificar su estado (**RN-02**).
+2. La **Capa de Presentación** (`ReportesController.GetReporteById`) valida los permisos del rol mediante el atributo `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` y comprueba el formato del parámetro de ruta.
+3. La **Capa de Negocio** (`ReporteService.GetReporteByIdAsync`) recupera el reporte solicitado de la base de datos sin modificar su estado.
 4. La **Capa de Persistencia** ejecuta la consulta de solo lectura (`AsNoTracking()`) sobre la tabla `Reportes`.
 5. El Sistema devuelve un código **200 OK** con los datos estructurados del reporte (`ReporteResponseDTO`).
 
@@ -38,7 +38,7 @@ Permite al administrador o dueño de la veterinaria consultar los reportes gener
   3. El Sistema devuelve un código **401 Unauthorized**. Fin del caso de uso.
 
 * **2a. Usuario sin rol de Administrador / Dueño (HTTP 403 Forbidden):**
-  1. Si en el Paso 2 el usuario autenticado tiene un rol distinto (ej. `Recepcionista` o `Veterinario`), violando la regla **RN-01**.
+  1. Si en el Paso 2 el usuario autenticado tiene un rol distinto (ej. `Recepcionista` o `Veterinario`).
   2. La Capa de Presentación (filtro de autorización) deniega el acceso al recurso.
   3. El Sistema devuelve un código **403 Forbidden** con el mensaje: `"Acceso denegado: se requieren permisos de Administrador."`. Fin del caso de uso.
 
@@ -64,7 +64,7 @@ Permite al administrador o dueño de la veterinaria consultar los reportes gener
 
 ### 6. POSTCONDICIONES
 - La información del reporte queda visualizada en la interfaz del administrador.
-- No se modifica ninguna información almacenada en el sistema (**RN-02**).
+- No se modifica ninguna información almacenada en el sistema (operación de solo lectura).
 
 ---
 
@@ -77,14 +77,14 @@ Permite al administrador o dueño de la veterinaria consultar los reportes gener
 | `200` | OK | Retorno exitoso de la lista o del contenido del reporte solicitado. |
 | `400` | Bad Request | Formato de identificador de reporte inválido. |
 | `401` | Unauthorized | Falta de autenticación o token expirado. |
-| `403` | Forbidden | Acceso no autorizado: rol insuficiente (RN-01). |
+| `403` | Forbidden | Acceso denegado: rol insuficiente (requiere Administrador). |
 | `404` | Not Found | El reporte solicitado no existe en la base de datos. |
 | `500` | Internal Server Error | Falla no controlada al consultar la persistencia. |
 
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400/401/403):** Se valida el formato de la URL y se comprueba el rol de Administrador en el pipeline de autorización `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` (**RN-01**).
-- **Verificación (Negocio, → 404):** Validación de existencia del reporte en el repositorio y armado del DTO de solo lectura (**RN-02**).
+- **Validación (Presentación, → 400/401/403):** Se valida el formato de la URL y se comprueba el rol de Administrador en el pipeline de autorización `[Authorize(Roles = "Administrador,DuenoVeterinaria")]`.
+- **Verificación (Negocio, → 404):** Validación de existencia del reporte en el repositorio y armado del DTO de solo lectura.
 
 ### Matriz de trazabilidad CU-10 → Test
 

@@ -1,7 +1,7 @@
 # Caso de Uso: Gestionar Mascotas
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del ciclo de vida de mascotas con reglas RN-01 (asociación obligatoria a dueño), RN-02 (desactivación mediante baja lógica para preservación de historia clínica y registros históricos), RN-03 (validación de campos obligatorios) y RN-04 (existencia previa del dueño).
+> Implementación del ciclo de vida de mascotas con reglas de negocio RN-06 (asociación de mascota a dueño registrado) y RN-07 (baja lógica y preservación histórica de mascotas).
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Recepcionista / Veterinario → registrar y mantener actualizados los datos biométricos y de identificación de los pacientes animales; Dueño de la Mascota → contar con el registro de su mascota para su atención clínica; Clínica Veterinaria → garantizar la integridad de las historias clínicas, la trazabilidad y la inmutabilidad de los antecedentes |
 | **Disparador (Trigger)** | El usuario selecciona el módulo "Mascotas" para registrar una nueva mascota, consultar el listado, actualizar datos o solicitar su desactivación (baja lógica) |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia diaria |
-| **Reglas de negocio relacionadas** | RN-01 (asociación obligatoria a un dueño registrado); RN-02 (baja lógica / desactivación conservando historia clínica y registros históricos); RN-03 (completitud de campos obligatorios); RN-04 (preexistencia del dueño en el sistema) |
+| **Reglas de negocio relacionadas** | RN-06 (asociación obligatoria a un dueño previamente registrado); RN-07 (baja lógica y preservación histórica de la historia clínica) |
 
 ---
 
@@ -21,13 +21,13 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
 
 ### 2. PRECONDICIONES
 - El actor debe haber iniciado sesión y poseer un Token JWT válido con rol de `Recepcionista`, `Veterinario` o `Administrador`.
-- Para registrar una mascota, el dueño debe encontrarse previamente registrado en el sistema (**RN-01**, **RN-04**).
+- Para registrar una mascota, el dueño debe encontrarse previamente registrado en el sistema (**RN-06**).
 - La Capa de Persistencia debe encontrarse disponible.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/mascotas` con un cuerpo JSON que contiene los datos de la mascota (`duenoId`, `nombre`, `especie`, `raza`, `sexo`, `fechaNacimiento` o `edad`, `peso`, `observaciones`).
 2. La **Capa de Presentación** (`MascotasController.CreateMascota`) valida que la estructura del JSON sea correcta y que los campos requeridos estén presentes (`[Required]`, `[MaxLength]` en `MascotaCreateDTO`).
-3. La **Capa de Negocio** (`MascotaService.CreateMascotaAsync`) normaliza las cadenas con `Trim()`, verifica la existencia del dueño asociado en la base de datos (**RN-01**, **RN-04**), e inicializa la entidad `Mascota` en estado `Activa`, vinculando automáticamente su registro inicial de `HistoriaClinica`.
+3. La **Capa de Negocio** (`MascotaService.CreateMascotaAsync`) normaliza las cadenas con `Trim()`, verifica la existencia del dueño asociado en la base de datos (**RN-06**), e inicializa la entidad `Mascota` en estado `Activa`, vinculando automáticamente su registro inicial de `HistoriaClinica`.
 4. La **Capa de Persistencia** genera el identificador único (`Id`) y guarda el registro en la tabla `Mascotas` junto a su historia clínica inicial.
 5. El Sistema devuelve un código **201 Created** con la información de la mascota (`MascotaResponseDTO`) y la cabecera `Location`.
 
@@ -39,7 +39,7 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 
 * **2a. Campos obligatorios de la mascota faltantes (HTTP 400 Bad Request):**
-  1. Si en el Paso 2 faltan campos como `nombre`, `especie`, `sexo` o `duenoId` (**RN-03**).
+  1. Si en el Paso 2 faltan campos como `nombre`, `especie`, `sexo` o `duenoId`.
   2. La Capa de Presentación detecta la falla de validación (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** detallando los campos faltantes. Fin del caso de uso.
 
@@ -49,7 +49,7 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
   3. El Sistema devuelve un código **400 Bad Request** con el mensaje de error correspondiente. Fin del caso de uso.
 
 * **3a. Dueño no registrado o inexistente (HTTP 404 Not Found):**
-  1. Si en el Paso 3 el `duenoId` no existe en la tabla `Duenos`, violando las reglas **RN-01** y **RN-04**.
+  1. Si en el Paso 3 el `duenoId` no existe en la tabla `Duenos`, violando la regla **RN-06**.
   2. La Capa de Negocio frena la creación y lanza la excepción `DuenoNotFoundException`.
   3. El Sistema devuelve un código **404 Not Found** con el mensaje: `"El dueño especificado no se encuentra registrado en el sistema."`. Fin del caso de uso.
 
@@ -59,7 +59,7 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
   3. El Sistema devuelve un código **404 Not Found**. Fin del caso de uso.
 
 * **3c. Intento de desactivar mascota que ya se encuentra inactiva (HTTP 409 Conflict):**
-  1. Si durante la operación de desactivación (`PATCH /api/mascotas/{id}/desactivar`) la mascota ya se encuentra en estado `"Inactiva"`.
+  1. Si durante la operación de desactivación (`PATCH /api/mascotas/{id}/desactivar`) la mascota ya se encuentra en estado `"Inactiva"`, violando la regla **RN-07**.
   2. La Capa de Negocio frena la operación y lanza la excepción `MascotaYaInactivaException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"La mascota ya se encuentra en estado inactivo."`. Fin del caso de uso.
 
@@ -71,12 +71,12 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
 ### 5. SUB-VARIACIONES (opcional)
 1. **Alta de mascota:** Creación de un nuevo paciente animal en estado "Activa" asociado a su dueño (`POST /api/mascotas`).
 2. **Modificación de datos:** Actualización de peso, raza, sexo u observaciones (`PUT /api/mascotas/{id}`).
-3. **Baja lógica / Desactivación:** Desactivación de la mascota (`PATCH /api/mascotas/{id}/desactivar`), cambiando su estado a `"Inactiva"` para preservar íntegramente su historia clínica y todos sus registros históricos (**RN-02**), sin eliminar físicamente el registro de la base de datos.
+3. **Baja lógica / Desactivación:** Desactivación de la mascota (`PATCH /api/mascotas/{id}/desactivar`), cambiando su estado a `"Inactiva"` para preservar íntegramente su historia clínica y todos sus registros históricos (**RN-07**), sin eliminar físicamente el registro de la base de datos.
 
 ### 6. POSTCONDICIONES
 - Se crea, modifica o desactiva (baja lógica) el registro en la tabla `Mascotas`.
 - Si la mascota es dada de alta o modificada en estado activo, queda habilitada y disponible en las listas de selección para agendar turnos y registrar atenciones médicas.
-- Si la mascota es desactivada, su estado pasa a `"Inactiva"`, conservando íntegramente su historia clínica y registros históricos para su consulta, pero quedando inhabilitada para recibir nuevos turnos o registrar nuevas atenciones médicas.
+- Si la mascota es desactivada, su estado pasa a `"Inactiva"`, conservando íntegramente su historia clínica y registros históricos para su consulta, pero quedando inhabilitada para recibir nuevos turnos o registrar nuevas atenciones médicas (**RN-07**).
 - En ningún caso se realiza la eliminación física del registro de la mascota ni de su historia clínica en la base de datos.
 
 ---
@@ -90,14 +90,14 @@ Permite al personal de la clínica veterinaria (veterinario/a o recepcionista) r
 | `201` | Created | Creación exitosa del recurso Mascota y su historia clínica vinculada. |
 | `200` | OK | Retorno exitoso de consulta, actualización o desactivación (baja lógica) de la mascota. |
 | `400` | Bad Request | Parámetros inválidos, campos obligatorios ausentes o peso negativo. |
-| `404` | Not Found | Dueño o mascota no encontrados en la base de datos. |
-| `409` | Conflict | Intento de desactivar una mascota que ya se encuentra en estado inactivo. |
+| `404` | Not Found | Dueño o mascota no encontrados en la base de datos (RN-06). |
+| `409` | Conflict | Violación de regla RN-07 (intento de desactivar una mascota que ya se encuentra en estado inactivo). |
 | `500` | Internal Server Error | Error no controlado durante la persistencia de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Presencia obligatoria de `nombre`, `especie`, `sexo` y `duenoId`, rangos numéricos positivos para peso y longitudes máximas (`MascotaCreateDTO`).
-- **Verificación (Negocio, → 404/409):** Validación de existencia del dueño en la base de datos (**RN-01**, **RN-04**), verificación de estado actual antes de desactivar y aplicación de baja lógica con preservación de historia clínica (**RN-02**).
+- **Verificación (Negocio, → 404/409):** Validación de existencia del dueño en la base de datos (**RN-06**), verificación de estado actual antes de desactivar y aplicación de baja lógica con preservación de historia clínica (**RN-07**).
 
 ### Matriz de trazabilidad CU-07 → Test
 

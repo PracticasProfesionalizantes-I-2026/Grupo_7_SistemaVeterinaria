@@ -1,7 +1,7 @@
 # Caso de Uso: Registrar Atención Médica
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del registro clínico con reglas de negocio RN-01 (inmutabilidad), RN-02 (asociación transaccional de módulos complementarios), RN-03 (evaluación de aptitud para vacunación in situ) y RN-04 (vacunación condicionada a evaluación APTO; resultado NO APTO no impide guardar la atención médica).
+> Implementación del registro clínico con reglas de negocio RN-01 (inmutabilidad de atenciones médicas), RN-02 (integración de registros clínicos a la historia clínica), RN-03 (evaluación de aptitud para vacunación), RN-04 (vacunación condicionada a aptitud clínica) y RN-07 (restricción de atención en mascotas inactivas).
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Veterinario/a → asentar de forma rigurosa el diagnóstico, evolución, prescripciones y vacunaciones realizadas; Dueño de la Mascota → recibir indicaciones claras de tratamiento y constancia de vacunas aplicadas; Clínica Veterinaria → cumplir normativas de historia clínica inmutable y control sanitario |
 | **Disparador (Trigger)** | El veterinario selecciona la opción "Nueva Atención" desde la historia clínica de una mascota |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia (se ejecuta en cada acto médico veterinario) |
-| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad del registro clínico); RN-02 (asociación automática de prescripciones, estudios, evaluación de aptitud y vacunas); RN-03 (evaluación de aptitud para vacunación realizada durante la consulta médica); RN-04 (vacunación condicionada estrictamente a resultado APTO; un resultado NO APTO no impide registrar la atención médica) |
+| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad de las atenciones médicas); RN-02 (integración de registros clínicos a la historia clínica); RN-03 (evaluación de aptitud para vacunación durante la atención médica); RN-04 (vacunación condicionada a aptitud clínica); RN-07 (mascotas inactivas no pueden registrar nuevas atenciones médicas) |
 
 ---
 
@@ -21,21 +21,21 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 
 ### 2. PRECONDICIONES
 - El veterinario debe haber iniciado sesión y contar con un Token JWT activo con rol de `Veterinario`.
-- La mascota debe encontrarse registrada en el sistema, en estado **Activa**, y contar con una historia clínica vinculada.
+- La mascota debe encontrarse registrada en el sistema, en estado **Activa** (**RN-07**), y contar con una historia clínica vinculada.
 - La Capa de Persistencia debe estar operativa y lista para transacciones ACID.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/atenciones` con un cuerpo JSON que contiene los datos de la atención clínica (`mascotaId`, `motivoConsulta`, `anamnesis`, `examenFisico`, `diagnostico`, `tratamiento`, `observaciones`) y de forma opcional las listas de prescripciones (`prescripciones[]`), estudios (`estudios[]`), evaluación de aptitud para vacunación (`evaluacionAptitud`) y registro de vacunas aplicadas (`vacunacion`).
 2. La **Capa de Presentación** (`AtencionesController.CreateAtencion`) valida la estructura del payload y verifica que los campos obligatorios del DTO principal y de los sub-objetos estén completos (`AtencionCreateDTO`).
-3. La **Capa de Negocio** (`AtencionService.CreateAtencionAsync`) valida la existencia de la mascota y comprueba que se encuentre en estado **Activa**, valida su historia clínica, extrae el ID del veterinario autenticado desde los claims del token, verifica las reglas de negocio complementarias (**RN-02**, **RN-03**). Si se incluye evaluación de aptitud para vacunación, valida y registra el resultado (`"APTO"` o `"NO_APTO"`). Si se incluye registro de vacuna, comprueba que la evaluación de aptitud marque estrictamente resultado `"APTO"` (**RN-04**).
-4. La **Capa de Persistencia** ejecuta una transacción en base de datos (`DbContext.SaveChangesAsync`), creando el registro inmutable en `Atenciones` (**RN-01**) y guardando en cascada las prescripciones, solicitudes de estudio, el resultado de la evaluación de aptitud y las vacunas aplicadas vinculadas a dicha atención.
+3. La **Capa de Negocio** (`AtencionService.CreateAtencionAsync`) valida la existencia de la mascota y comprueba que se encuentre en estado **Activa** (**RN-07**), valida su historia clínica, extrae el ID del veterinario autenticado desde los claims del token, y asegura la trazabilidad clínica (**RN-02**). Si se incluye evaluación de aptitud para vacunación mediante la checklist clínica, valida y registra el resultado (`"APTO"` o `"NO_APTO"`) (**RN-03**). Si se incluye registro de vacuna, comprueba que la evaluación de aptitud marque estrictamente resultado `"APTO"` (**RN-04**).
+4. La **Capa de Persistencia** ejecuta una transacción en base de datos (`DbContext.SaveChangesAsync`), creando el registro inmutable en `Atenciones` (**RN-01**) y guardando en cascada las prescripciones, solicitudes de estudio, el resultado de la evaluación de aptitud y las vacunas aplicadas vinculadas a dicha atención (**RN-02**).
 5. El Sistema devuelve un código **201 Created** con el detalle completo de la atención registrada (`AtencionResponseDTO`) y su identificador generado.
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
 * **1a. JSON inválido o malformado (HTTP 400 Bad Request):**
   1. Si en el Paso 1 el cuerpo de la petición contiene sintaxis inválida o campos con tipos no coincidentes.
-  2. El Sistema (Capa de Presentación) rechaza la petición por falla en el model binding.
+  2. El Sistema (Capa de Presentación / model binding) rechaza la petición por falla en el model binding.
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 
 * **2a. Campos obligatorios de atención faltantes (HTTP 400 Bad Request):**
@@ -59,7 +59,7 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"No es posible registrar la vacuna: el paciente no cumple con las condiciones clínicas de aptitud (resultado NO APTO o evaluación ausente)."`. *(Nota: Si el profesional decide no aplicar la vacuna ante una evaluación no apta, la atención médica puede registrarse y guardarse exitosamente conservando el resultado NO APTO).* Fin del caso de uso.
 
 * **3c. Intento de registrar atención médica en mascota inactiva (HTTP 409 Conflict):**
-  1. Si en el Paso 3 se detecta que la mascota se encuentra en estado `"Inactiva"`.
+  1. Si en el Paso 3 se detecta que la mascota se encuentra en estado `"Inactiva"`, violando la regla **RN-07**.
   2. La Capa de Negocio frena la operación y lanza la excepción `MascotaInactivaException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"No es posible registrar una nueva atención médica para una mascota inactiva."`. Fin del caso de uso.
 
@@ -76,7 +76,7 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 5. **Atención médica con paciente evaluado NO APTO para vacunación:** El profesional completa la checklist clínica y el resultado es `"NO APTO"`. El sistema bloquea el registro de la vacunación pero permite guardar y finalizar normalmente la atención médica, asentando el resultado `"NO APTO"` de la evaluación en la historia clínica.
 
 ### 6. POSTCONDICIONES
-- La atención médica queda registrada de forma inmutable (**RN-01**) en la tabla `Atenciones`, incluyendo el resultado de la evaluación de aptitud si fue efectuada (`APTO` o `NO APTO`).
+- La atención médica queda registrada de forma inmutable (**RN-01**) en la tabla `Atenciones`, incluyendo el resultado de la evaluación de aptitud si fue efectuada (`APTO` o `NO APTO`) (**RN-03**).
 - Las prescripciones, estudios y vacunas aplicadas (en caso de resultar `APTO`) quedan asociadas automáticamente a la atención y a la historia clínica (**RN-02**).
 - Si se aplicaron vacunas con aptitud aprobada, se actualizan los indicadores de última consulta y próximas vacunas de la mascota.
 
@@ -91,13 +91,13 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 | `201` | Created | Registro exitoso de la atención médica (con o sin vacunas/estudios/prescripciones/evaluación). |
 | `400` | Bad Request | Faltan datos clínicos obligatorios o datos de prescripción/estudios incompletos. |
 | `404` | Not Found | La mascota especificada no existe en la Capa de Persistencia. |
-| `409` | Conflict | Violación de regla de negocio RN-04 (vacunación sin aptitud APTO) o intento de registrar atención en mascota inactiva. |
+| `409` | Conflict | Violación de regla de negocio RN-04 (vacunación sin aptitud APTO) o RN-07 (intento de registrar atención en mascota inactiva). |
 | `500` | Internal Server Error | Error no controlado durante la transacción de guardado en la base de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Se validan formatos de texto, presencia de campos obligatorios clínicos (`motivoConsulta`, `diagnostico`, `tratamiento`) y esquemas válidos en las colecciones hijas (`PrescripcionDTO`, `EstudioDTO`).
-- **Verificación (Negocio, → 404/409):** Comprobación de existencia y estado activo de la mascota, validación de su historia clínica (`HistoriaClinicaService`), asociación obligatoria a la atención activa (**RN-03**), y verificación estricta de la aptitud para vacunación (`APTO`) antes de habilitar el registro de la vacuna (**RN-04**).
+- **Verificación (Negocio, → 404/409):** Comprobación de existencia y estado activo de la mascota (**RN-07**), validación de su historia clínica e integración de registros (**RN-02**), evaluación de aptitud (**RN-03**), verificación estricta de la aptitud para vacunación (`APTO`) antes de habilitar el registro de la vacuna (**RN-04**) y persistencia inmutable de la atención médica (**RN-01**).
 
 ### Matriz de trazabilidad CU-04 → Test
 

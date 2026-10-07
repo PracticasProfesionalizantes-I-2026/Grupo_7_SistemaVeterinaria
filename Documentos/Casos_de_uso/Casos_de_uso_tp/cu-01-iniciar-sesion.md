@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Personal de la Veterinaria → ingresar de forma segura a sus módulos operativos según su rol; Administración → garantizar la seguridad, auditoría de accesos y protección de datos mediante autenticación por JWT |
 | **Disparador (Trigger)** | El usuario ingresa sus credenciales en la pantalla de inicio de sesión y selecciona "Iniciar Sesión" |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia (al inicio de cada jornada laboral o expiración de token) |
-| **Reglas de negocio relacionadas** | RN-01 (usuarios registrados y activos); RN-02 (protección y hash de credenciales); RN-03 (control de acceso basado en roles) |
+| **Reglas de negocio relacionadas** | Ninguna (aplica control de acceso, autenticación y seguridad técnica) |
 
 ---
 
@@ -21,14 +21,14 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Dueño) aut
 
 ### 2. PRECONDICIONES
 - El usuario debe estar previamente registrado en la tabla `Usuarios` del sistema.
-- La cuenta del usuario debe encontrarse en estado activo (**RN-01**).
+- La cuenta del usuario debe encontrarse en estado activo.
 - La Capa de Persistencia debe estar disponible y accesible.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `POST /api/auth/login` con un cuerpo JSON que contiene sus credenciales (`nombreUsuario` o `email`, y `password`).
 2. La **Capa de Presentación** (`AuthController.Login`) valida que la estructura del JSON sea válida y que los campos requeridos no estén vacíos (`[Required]` sobre `LoginRequestDTO`).
-3. La **Capa de Negocio** (`AuthService.AuthenticateAsync`) busca al usuario en la base de datos, verifica el hash de la contraseña (**RN-02**) y comprueba que el usuario esté activo (**RN-01**).
-4. La **Capa de Negocio** construye los claims de identidad con el rol correspondiente (**RN-03**) y genera un Token JWT firmado digitalmente.
+3. La **Capa de Negocio** (`AuthService.AuthenticateAsync`) busca al usuario en la base de datos, verifica el hash de la contraseña y comprueba que el usuario esté activo.
+4. La **Capa de Negocio** construye los claims de identidad con el rol correspondiente y genera un Token JWT firmado digitalmente.
 5. La **Capa de Persistencia** actualiza la fecha y hora del último acceso del usuario en la tabla `Usuarios`.
 6. El Sistema devuelve un código **200 OK** con el Token JWT, tiempo de expiración y los datos de perfil y rol del usuario (`LoginResponseDTO`).
 
@@ -45,12 +45,12 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Dueño) aut
   3. El Sistema devuelve un código **400 Bad Request** indicando: `"El nombre de usuario/email y la contraseña son obligatorios."`. Fin del caso de uso.
 
 * **3a. Usuario inexistente o contraseña incorrecta (HTTP 401 Unauthorized):**
-  1. Si en el Paso 3 el nombre de usuario no existe en la base de datos o el hash de la contraseña no coincide con el almacenado (**RN-02**).
+  1. Si en el Paso 3 el nombre de usuario no existe en la base de datos o el hash de la contraseña no coincide con el almacenado.
   2. La Capa de Negocio lanza la excepción `InvalidCredentialsException`.
   3. El Sistema devuelve un código **401 Unauthorized** con el mensaje: `"Credenciales inválidas. Verifique su usuario y contraseña."`. Fin del caso de uso.
 
 * **3b. Usuario inactivo o deshabilitado (HTTP 403 Forbidden):**
-  1. Si en el Paso 3 las credenciales son correctas pero el usuario tiene estado inactivo o bloqueado (**RN-01**).
+  1. Si en el Paso 3 las credenciales son correctas pero el usuario tiene estado inactivo o bloqueado.
   2. La Capa de Negocio lanza la excepción `UserInactiveException`.
   3. El Sistema devuelve un código **403 Forbidden** con el mensaje: `"El usuario no se encuentra habilitado para operar en el sistema."`. Fin del caso de uso.
 
@@ -79,13 +79,13 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Dueño) aut
 | `200` | OK | Autenticación exitosa y retorno del Token JWT con perfil del usuario. |
 | `400` | Bad Request | Formato JSON incorrecto o datos obligatorios faltantes (usuario o contraseña en blanco). |
 | `401` | Unauthorized | Fallo de autenticación por usuario inexistente o contraseña incorrecta. |
-| `403` | Forbidden | Acceso denegado debido a que la cuenta del usuario está inactiva (RN-01). |
+| `403` | Forbidden | Acceso denegado debido a que la cuenta del usuario está inactiva. |
 | `500` | Internal Server Error | Error no controlado en la firma del token o en el acceso a la base de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Se verifica sintaxis JSON, presencia obligatoria de campos (`[Required]` sobre `LoginRequestDTO`) y longitudes mínimas/máximas.
-- **Verificación (Negocio, → 401/403):** Se verifica la existencia del usuario, correspondencia del hash criptográfico de contraseña (**RN-02**), verificación de estado activo (**RN-01**) y asignación de claims de roles (**RN-03**).
+- **Verificación (Negocio, → 401/403):** Se verifica la existencia del usuario, correspondencia del hash criptográfico de contraseña, verificación de estado activo y asignación de claims de roles según la política de seguridad.
 
 ### Matriz de trazabilidad CU-01 → Test
 

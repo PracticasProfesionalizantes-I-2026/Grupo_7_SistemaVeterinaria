@@ -173,10 +173,20 @@ Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, u
 
 # Reglas de negocio
 
-RN-01: Las atenciones médicas registradas en la historia clínica no podrán ser modificadas ni eliminadas, ya que constituyen un registro histórico de la atención brindada al paciente.
+RN-01. Inmutabilidad de las Atenciones Médicas: Una vez registrada una atención médica en la Historia Clínica, no podrá ser modificada ni eliminada y permanecerá como registro histórico.
 
-RN-02. Las prescripciones, estudios y vacunaciones registrados durante una atención médica quedarán asociados automáticamente a dicha atención y a la historia clínica del paciente.
+RN-02. Integración de Registros Clínicos a la Historia Clínica: Los registros clínicos generados para una mascota, como prescripciones, estudios y vacunaciones, deberán quedar asociados a su Historia Clínica, manteniendo la trazabilidad correspondiente con la atención médica cuando corresponda.
 
-RN-03. La evaluación de aptitud para vacunación solo podrá realizarse durante el registro de una atención médica mediante una checklist clínica, quedando su resultado (APTO o NO APTO) registrado junto con la consulta.
+RN-03. Evaluación de Aptitud para Vacunación durante la Atención Médica: La evaluación de aptitud para vacunación solo podrá realizarse durante una atención médica mediante una checklist clínica. El resultado deberá quedar registrado como APTO o NO APTO junto con la atención.
 
-RN-04. Una vacuna sólo podrá registrarse si el paciente fue evaluado como APTO para vacunación en la atención médica actual. Un resultado NO APTO impedirá el registro de la vacuna, pero no impedirá guardar la atención médica.
+RN-04. Vacunación condicionada a Aptitud Clínica: Una vacunación solo podrá registrarse cuando el paciente haya obtenido resultado APTO en la evaluación de aptitud realizada durante la atención médica. Un resultado NO APTO impedirá registrar la vacuna, pero no impedirá guardar y finalizar normalmente la atención médica.
+
+RN-05. Unicidad del DNI del Dueño: El DNI de cada dueño deberá ser único en el sistema. No se permitirá registrar un nuevo dueño ni modificar uno existente utilizando un DNI que ya corresponda a otro dueño registrado.
+
+RN-06. Asociación de Mascota a Dueño: Toda mascota deberá estar asociada a un dueño previamente registrado en el sistema.
+
+RN-07. Baja Lógica y Preservación Histórica de Mascotas: La desactivación de una mascota será de carácter lógico y no implicará su eliminación física del sistema. La mascota conservará su Historia Clínica y todos sus registros históricos y continuará disponible para consulta. Mientras permanezcan inactiva no podrá recibir nuevos turnos ni nuevas atenciones médicas.
+
+RN-08. No Solapamiento de Turnos: El sistema no permitirá asignar a un mismo veterinario turnos cuyos horarios se superpongan.
+
+RN-09. Inmutabilidad de Turnos Finalizados: Los turnos que se encuentren en estado Finalizado no podrán ser cancelados ni reprogramados.

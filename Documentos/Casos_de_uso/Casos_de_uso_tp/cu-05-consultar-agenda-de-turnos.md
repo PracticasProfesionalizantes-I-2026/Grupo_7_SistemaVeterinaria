@@ -1,7 +1,7 @@
 # Caso de Uso: Consultar Agenda de Turnos
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del módulo de consulta y visualización de la agenda de atención profesional con reglas de visualización de turnos (**RN-01**) e idempotencia de consulta (**RN-02**).
+> Implementación del módulo de consulta y visualización de la agenda de atención profesional mediante operaciones de solo lectura.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Veterinario/a → consultar su cronograma de atenciones diarias y conocer los pacientes asignados; Recepcionista → verificar disponibilidad horaria de consultorios y médicos para coordinar nuevas citas; Administración → monitorear la ocupación y puntualidad del servicio |
 | **Disparador (Trigger)** | El usuario selecciona la opción "Agenda" o "Turnos" desde el menú de navegación |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia diaria |
-| **Reglas de negocio relacionadas** | RN-01 (la agenda expone exclusivamente turnos válidos registrados en el sistema); RN-02 (la operación de consulta es estrictamente de solo lectura y no altera ningún estado) |
+| **Reglas de negocio relacionadas** | Ninguna (operación de consulta de solo lectura) |
 
 ---
 
@@ -27,7 +27,7 @@ Permite al veterinario o a la recepcionista consultar el listado y cronograma de
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `GET /api/turnos` especificando parámetros opcionales de filtrado en la URL (`fecha`, `veterinarioId`, `estado`, `mascotaId`).
 2. La **Capa de Presentación** (`TurnosController.GetAgenda`) valida el formato de las fechas y la coherencia sintáctica de los parámetros de consulta (`AgendaFilterDTO`).
-3. La **Capa de Negocio** (`TurnoService.GetAgendaAsync`) aplica los criterios de búsqueda sobre los turnos del sistema (**RN-01**), garantizando que no se modifique el estado de las citas (**RN-02**), e incluye la información del dueño, la mascota y el veterinario responsable.
+3. La **Capa de Negocio** (`TurnoService.GetAgendaAsync`) aplica los criterios de búsqueda sobre los turnos del sistema, garantizando que no se modifique el estado de las citas, e incluye la información del dueño, la mascota y el veterinario responsable.
 4. La **Capa de Persistencia** ejecuta la consulta de lectura (`AsNoTracking()`) sobre la tabla `Turnos` resolviendo las relaciones necesarias.
 5. El Sistema devuelve un código **200 OK** con la colección de turnos encontrados (`IEnumerable<TurnoAgendaResponseDTO>`).
 
@@ -60,7 +60,7 @@ Permite al veterinario o a la recepcionista consultar el listado y cronograma de
 
 ### 6. POSTCONDICIONES
 - La agenda de turnos queda expuesta en la interfaz para su visualización y gestión.
-- No se produce ningún cambio de estado en los turnos ni en las entidades vinculadas (**RN-02**).
+- No se produce ningún cambio de estado en los turnos ni en las entidades vinculadas (operación de solo lectura).
 
 ---
 

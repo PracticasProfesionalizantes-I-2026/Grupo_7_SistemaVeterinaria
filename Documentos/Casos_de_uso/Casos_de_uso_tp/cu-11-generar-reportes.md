@@ -1,7 +1,7 @@
 # Caso de Uso: Generar Reportes
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del motor de generación de reportes con reglas RN-01 (autorización por rol exclusivo de Administrador), RN-02 (coherencia de rango temporal), RN-03 (parámetros de consulta obligatorios) y RN-04 (persistencia automática en el histórico de reportes).
+> Implementación del motor de generación de reportes con control de acceso por rol de Administrador, validación de parámetros y persistencia histórica.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Dueño de la Veterinaria → obtener métricas agregadas de atenciones, vacunas, turnos, altas de pacientes y dueños en períodos determinados; Clínica Veterinaria → auditar el desempeño clínico y comercial y guardar registro histórico |
 | **Disparador (Trigger)** | El administrador selecciona la opción "Generar Reporte" desde la sección de reportes, completa los parámetros y solicita su emisión |
 | **Prioridad / Frecuencia** | Media; baja/media frecuencia (generación periódica bajo demanda) |
-| **Reglas de negocio relacionadas** | RN-01 (autorización restringida a rol de Administrador / Dueño); RN-02 (rango de fechas válido: fechaDesde <= fechaHasta); RN-03 (selección obligatoria de al menos un tipo de reporte y motivo); RN-04 (persistencia de cada reporte generado en la base de datos) |
+| **Reglas de negocio relacionadas** | Ninguna (aplica control de acceso por rol, validación de parámetros y persistencia) |
 
 ---
 
@@ -20,15 +20,15 @@
 Permite al administrador o dueño de la veterinaria generar nuevos reportes estadísticos y operacionales del sistema para consolidar información sobre atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños dados de alta y turnos en un período específico, registrando el resultado en el historial de reportes.
 
 ### 2. PRECONDICIONES
-- El actor debe haber iniciado sesión y poseer un Token JWT con claim de rol `Administrador` o `DuenoVeterinaria` (**RN-01**).
+- El actor debe haber iniciado sesión y poseer un Token JWT con claim de rol `Administrador` o `DuenoVeterinaria`.
 - Debe existir información registrada en los módulos consultados dentro del período seleccionado.
 - La Capa de Persistencia debe estar operativa para consolidar y almacenar el reporte.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/reportes/generar` con un cuerpo JSON que contiene el `motivo`, la lista de `tiposReporte[]` (`Atenciones`, `Vacunaciones`, `Mascotas`, `Duenos`, `Turnos`), `fechaDesde` y `fechaHasta`.
-2. La **Capa de Presentación** (`ReportesController.GenerarReporte`) valida la autorización del rol (`[Authorize(Roles = "Administrador,DuenoVeterinaria")]`) y valida que los campos requeridos estén presentes en `GenerarReporteRequestDTO` (**RN-03**).
-3. La **Capa de Negocio** (`ReporteService.GenerarReporteAsync`) valida que la `fechaDesde` sea menor o igual a la `fechaHasta` (**RN-02**), ejecuta las consultas de agregación y cálculo estadístico sobre los repositorios correspondientes, y estructura el resultado.
-4. La **Capa de Persistencia** guarda el documento consolidado en la tabla `Reportes` con su fecha de generación y usuario solicitante (**RN-04**).
+2. La **Capa de Presentación** (`ReportesController.GenerarReporte`) valida la autorización del rol (`[Authorize(Roles = "Administrador,DuenoVeterinaria")]`) y valida que los campos requeridos estén presentes en `GenerarReporteRequestDTO`.
+3. La **Capa de Negocio** (`ReporteService.GenerarReporteAsync`) valida que la `fechaDesde` sea menor o igual a la `fechaHasta`, ejecuta las consultas de agregación y cálculo estadístico sobre los repositorios correspondientes, y estructura el resultado.
+4. La **Capa de Persistencia** guarda el documento consolidado en la tabla `Reportes` con su fecha de generación y usuario solicitante.
 5. El Sistema devuelve un código **201 Created** con el reporte generado (`ReporteResponseDTO`), su identificador y la URL para su posterior consulta o exportación.
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
@@ -39,17 +39,17 @@ Permite al administrador o dueño de la veterinaria generar nuevos reportes esta
   3. El Sistema devuelve un código **401 Unauthorized**. Fin del caso de uso.
 
 * **2a. Usuario sin permisos de Administrador (HTTP 403 Forbidden):**
-  1. Si en el Paso 2 el usuario autenticado pertenece al rol `Recepcionista` o `Veterinario`, violando la regla **RN-01**.
+  1. Si en el Paso 2 el usuario autenticado pertenece al rol `Recepcionista` o `Veterinario`.
   2. La Capa de Presentación rechaza el acceso por falta de autorización.
   3. El Sistema devuelve un código **403 Forbidden**. Fin del caso de uso.
 
 * **2b. Campos obligatorios incompletos (HTTP 400 Bad Request):**
-  1. Si en el Paso 2 falta el `motivo` o la lista de `tiposReporte` se encuentra vacía, violando la regla **RN-03**.
+  1. Si en el Paso 2 falta el `motivo` o la lista de `tiposReporte` se encuentra vacía.
   2. La Capa de Presentación detecta el error de validación (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** con el mensaje: `"Debe especificar el motivo y al menos un tipo de reporte a generar."`. Fin del caso de uso.
 
 * **3a. Rango de fechas incoherente (HTTP 400 Bad Request):**
-  1. Si en el Paso 3 la `fechaDesde` es posterior a la `fechaHasta` (`fechaDesde > fechaHasta`), violando la regla **RN-02**.
+  1. Si en el Paso 3 la `fechaDesde` es posterior a la `fechaHasta` (`fechaDesde > fechaHasta`).
   2. La Capa de Negocio lanza la excepción `RangoFechasInvalidoException`.
   3. El Sistema devuelve un código **400 Bad Request** indicando: `"La fecha inicial no puede ser posterior a la fecha final."`. Fin del caso de uso.
 
@@ -64,7 +64,7 @@ Permite al administrador o dueño de la veterinaria generar nuevos reportes esta
 3. **Selección de formato de exportación:** Generación con salida JSON para la web o formato PDF/Excel para descarga directa.
 
 ### 6. POSTCONDICIONES
-- Se crea y persiste un nuevo registro en la tabla `Reportes` con sus métricas calculadas (**RN-04**).
+- Se crea y persiste un nuevo registro en la tabla `Reportes` con sus métricas calculadas.
 - El reporte queda disponible de forma permanente en el historial de reportes para futuras consultas (**CU-10**).
 
 ---
@@ -76,15 +76,15 @@ Permite al administrador o dueño de la veterinaria generar nuevos reportes esta
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
 | `201` | Created | Creación y persistencia exitosa del nuevo reporte estadístico. |
-| `400` | Bad Request | Parámetros obligatorios ausentes o rango de fechas incoherente (RN-02, RN-03). |
+| `400` | Bad Request | Parámetros obligatorios ausentes o rango de fechas incoherente. |
 | `401` | Unauthorized | Falta de token de autenticación válido en la petición. |
-| `403` | Forbidden | Acceso no autorizado: rol insuficiente (RN-01). |
+| `403` | Forbidden | Acceso no autorizado: rol insuficiente (requiere Administrador). |
 | `500` | Internal Server Error | Falla técnica no controlada durante el cálculo o guardado del reporte. |
 
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400/401/403):** Control de acceso por rol `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` (**RN-01**) y validación de campos obligatorios mediante `[Required]`, `[MinLength(1)]` sobre `tiposReporte` en `GenerarReporteRequestDTO` (**RN-03**).
-- **Verificación (Negocio, → 400):** Verificación lógica del rango temporal (`fechaDesde <= fechaHasta`) (**RN-02**) y compilación estadística de los registros en los repositorios de dominio.
+- **Validación (Presentación, → 400/401/403):** Control de acceso por rol `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` y validación de campos obligatorios mediante `[Required]`, `[MinLength(1)]` sobre `tiposReporte` en `GenerarReporteRequestDTO`.
+- **Verificación (Negocio, → 400):** Verificación lógica del rango temporal (`fechaDesde <= fechaHasta`) y compilación estadística de los registros en los repositorios de dominio.
 
 ### Matriz de trazabilidad CU-11 → Test
 

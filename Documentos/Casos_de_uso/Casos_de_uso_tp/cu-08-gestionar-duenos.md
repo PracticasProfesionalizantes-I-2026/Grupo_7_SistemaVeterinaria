@@ -1,7 +1,7 @@
 # Caso de Uso: Gestionar Dueños
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del ciclo de vida y administración de clientes con reglas RN-01 (unicidad de DNI en actualizaciones) y RN-02 (restricción de baja definitiva ante existencia de mascotas o historial asociado).
+> Implementación del ciclo de vida y administración de clientes con regla de negocio RN-05 (unicidad de DNI en actualizaciones) y validaciones de integridad referencial.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Recepcionista / Veterinario → consultar el listado de clientes, buscar por DNI/nombre, actualizar datos de contacto y gestionar bajas; Dueño de la Mascota → mantener actualizados sus teléfonos, email y domicilio de contacto ante emergencias de sus mascotas; Clínica Veterinaria → garantizar la integridad y coherencia del padrón de clientes |
 | **Disparador (Trigger)** | El usuario ingresa al módulo "Dueños" para buscar, consultar el perfil, editar datos de contacto o solicitar la baja de un dueño |
 | **Prioridad / Frecuencia** | Media / Alta; frecuencia diaria |
-| **Reglas de negocio relacionadas** | RN-01 (el DNI del dueño es unívoco en el sistema); RN-02 (prohibición de eliminación definitiva de dueños con mascotas, turnos o historias clínicas asociadas) |
+| **Reglas de negocio relacionadas** | RN-05 (unicidad del DNI del dueño) |
 
 ---
 
@@ -27,7 +27,7 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200 / 204)
 1. El Actor envía una petición al endpoint `GET /api/duenos/{id}` para consultar el detalle de un dueño, o `PUT /api/duenos/{id}` con el JSON de actualización de datos de contacto (`nombre`, `apellido`, `dni`, `telefono`, `domicilio`, `email`).
 2. La **Capa de Presentación** (`DuenosController.UpdateDueno`) valida que el ID de ruta coincida y que los atributos de validación del DTO sean correctos (`DuenoUpdateDTO`).
-3. La **Capa de Negocio** (`DuenoService.UpdateDuenoAsync`) recupera al dueño por ID, verifica que el nuevo DNI no esté utilizado por otro dueño distinto (**RN-01**), normaliza los textos con `Trim()` y actualiza los campos.
+3. La **Capa de Negocio** (`DuenoService.UpdateDuenoAsync`) recupera al dueño por ID, verifica que el nuevo DNI no esté utilizado por otro dueño distinto (**RN-05**), normaliza los textos con `Trim()` y actualiza los campos.
 4. La **Capa de Persistencia** actualiza el registro en la tabla `Duenos` y persiste los cambios.
 5. El Sistema devuelve un código **200 OK** con los datos actualizados del dueño y sus mascotas vinculadas (`DuenoDetailResponseDTO`), o un código **204 No Content** en caso de operaciones de eliminación.
 
@@ -49,12 +49,12 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
   3. El Sistema devuelve un código **404 Not Found** con el mensaje: `"No se encontró ningún dueño con los datos especificados."`. Fin del caso de uso.
 
 * **3b. DNI ya asignado a otro dueño (HTTP 409 Conflict):**
-  1. Si en el Paso 3 al actualizar el DNI se detecta que ya pertenece a otro registro existente, violando la regla **RN-01**.
+  1. Si en el Paso 3 al actualizar el DNI se detecta que ya pertenece a otro registro existente, violando la regla **RN-05**.
   2. La Capa de Negocio frena la modificación y lanza `DniDuplicadoException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"El DNI {dni} ya se encuentra asignado a otro dueño."`. Fin del caso de uso.
 
 * **3c. Intento de eliminar dueño con mascotas o atenciones asociadas (HTTP 409 Conflict):**
-  1. Si durante una solicitud de baja (`DELETE /api/duenos/{id}`) el dueño posee mascotas activas, turnos o atenciones clínicas vinculadas, violando la regla **RN-02**.
+  1. Si durante una solicitud de baja (`DELETE /api/duenos/{id}`) el dueño posee mascotas activas, turnos o atenciones clínicas vinculadas.
   2. La Capa de Negocio frena la eliminación y lanza `DuenoConMascotasActivasException`.
   3. El Sistema devuelve un código **409 Conflict** indicando: `"No es posible eliminar al dueño porque tiene mascotas asociadas o historial clínico activo."`. Fin del caso de uso.
 
@@ -83,13 +83,13 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
 | `204` | No Content | Eliminación exitosa del registro del dueño. |
 | `400` | Bad Request | Parámetros inválidos, datos faltantes o cadenas con solo espacios. |
 | `404` | Not Found | Dueño inexistente en la Capa de Persistencia. |
-| `409` | Conflict | DNI duplicado al modificar (RN-01) o intento de eliminación con mascotas asociadas (RN-02). |
+| `409` | Conflict | DNI duplicado al modificar (RN-05) o intento de eliminación con mascotas o historial asociado. |
 | `500` | Internal Server Error | Falla no controlada de persistencia en la base de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Se validan la obligatoriedad de campos, tipos numéricos en DNI y formato de email mediante DataAnnotations sobre `DuenoUpdateDTO`.
-- **Verificación (Negocio, → 404/409):** Validación de existencia del cliente, verificación de unicidad de DNI excluyendo el propio ID (**RN-01**) y control de integridad referencial previo al borrado (**RN-02**).
+- **Verificación (Negocio, → 404/409):** Validación de existencia del cliente, verificación de unicidad de DNI excluyendo el propio ID (**RN-05**) y control de integridad referencial previo a la baja.
 
 ### Matriz de trazabilidad CU-08 → Test
 

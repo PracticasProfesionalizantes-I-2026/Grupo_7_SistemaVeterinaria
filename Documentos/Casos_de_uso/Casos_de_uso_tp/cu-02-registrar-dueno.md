@@ -1,7 +1,7 @@
 # Caso de Uso: Registrar Dueño
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Reglas de negocio RN-01 (DNI único), RN-02 (campos obligatorios) y normalización de espacios implementadas en la Capa de Negocio con su respectiva cobertura de pruebas unitarias e integración.
+> Regla de negocio RN-05 (unicidad del DNI del dueño) y validaciones de campos obligatorios implementadas en la Capa de Negocio y Presentación con su respectiva cobertura de pruebas.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Recepcionista → dar de alta de forma rápida y confiable a los clientes de la clínica; Dueño de la Mascota → quedar registrado en el padrón para poder vincular a sus animales y gestionar turnos; Veterinaria → asegurar la unicidad y veracidad de los datos de contacto |
 | **Disparador (Trigger)** | La recepcionista selecciona la opción "Registrar Dueño" desde el módulo de administración de dueños |
 | **Prioridad / Frecuencia** | Alta; media/alta frecuencia (altas de nuevos clientes) |
-| **Reglas de negocio relacionadas** | RN-01 (DNI único por dueño); RN-02 (campos obligatorios de contacto); RN-03 (asociación 1 a N con mascotas) |
+| **Reglas de negocio relacionadas** | RN-05 (unicidad del DNI del dueño) |
 
 ---
 
@@ -22,12 +22,12 @@ Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando su
 ### 2. PRECONDICIONES
 - La recepcionista debe contar con una sesión activa y un Token JWT válido con permisos de escritura sobre el recurso Dueños.
 - La Capa de Persistencia debe estar disponible y accesible.
-- El cliente no debe encontrarse registrado previamente con el mismo número de DNI (**RN-01**).
+- El cliente no debe encontrarse registrado previamente con el mismo número de DNI (**RN-05**).
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/duenos` con un cuerpo JSON que contiene los datos del dueño (`nombre`, `apellido`, `dni`, `telefono`, `domicilio`, `email`).
 2. La **Capa de Presentación** (`DuenosController.CreateDueno`) valida que el JSON sea estructuralmente correcto y que los campos requeridos estén presentes (`[Required]`, `[MaxLength]`, `[EmailAddress]` en `DuenoCreateDTO`).
-3. La **Capa de Negocio** (`DuenoService.CreateDuenoAsync`) normaliza las cadenas de texto aplicando `Trim()`, verifica la regla de negocio **RN-01** comprobando que no exista otro dueño con el mismo DNI (`ExistsByDniAsync`) y construye la entidad `Dueno`.
+3. La **Capa de Negocio** (`DuenoService.CreateDuenoAsync`) normaliza las cadenas de texto aplicando `Trim()`, verifica la regla de negocio **RN-05** comprobando que no exista otro dueño con el mismo DNI (`ExistsByDniAsync`) y construye la entidad `Dueno`.
 4. La **Capa de Persistencia** genera un nuevo identificador único (`Id`) y guarda el registro en la tabla `Duenos`.
 5. El Sistema devuelve un código **201 Created** con el recurso creado (`DuenoResponseDTO`) y el encabezado `Location` apuntando a `GET /api/duenos/{id}`.
 
@@ -39,7 +39,7 @@ Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando su
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 
 * **2a. Dato obligatorio faltante (HTTP 400 Bad Request):**
-  1. Si en el Paso 2 el JSON no incluye `nombre`, `apellido`, `dni` o `telefono` (**RN-02**).
+  1. Si en el Paso 2 el JSON no incluye `nombre`, `apellido`, `dni` o `telefono`.
   2. La Capa de Presentación detecta la falla de validación (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** detallando el o los campos requeridos faltantes. Fin del caso de uso.
 
@@ -54,7 +54,7 @@ Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando su
   3. El Sistema devuelve un código **400 Bad Request** indicando que el campo no puede estar en blanco. Fin del caso de uso.
 
 * **3a. DNI duplicado (HTTP 409 Conflict):**
-  1. Si en el Paso 3 la verificación de dominio detecta que ya existe un dueño registrado con ese número de DNI, violando la regla **RN-01**.
+  1. Si en el Paso 3 la verificación de dominio detecta que ya existe un dueño registrado con ese número de DNI, violando la regla **RN-05**.
   2. La Capa de Negocio frena la ejecución y lanza la excepción `DniDuplicadoException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"Ya existe un dueño registrado con el DNI {dni}."`. Fin del caso de uso.
 
@@ -68,7 +68,7 @@ Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando su
 
 ### 6. POSTCONDICIONES
 - Se crea un nuevo registro persistente en la tabla `Duenos` con identificador único.
-- El nuevo dueño queda visible en las búsquedas (`GET /api/duenos`) y habilitado para asociarle mascotas (**RN-03**).
+- El nuevo dueño queda visible en las búsquedas (`GET /api/duenos`) y disponible para asociarle mascotas.
 
 ---
 
@@ -80,13 +80,13 @@ Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando su
 | --- | --- | --- |
 | `201` | Created | Persistencia exitosa del nuevo recurso Dueño en el sistema. |
 | `400` | Bad Request | Formato JSON incorrecto, campos obligatorios ausentes o formato de email/DNI inválido. |
-| `409` | Conflict | Violación de regla de unicidad de DNI (RN-01: DNI ya registrado). |
+| `409` | Conflict | Violación de regla de negocio RN-05 (DNI ya registrado en el sistema). |
 | `500` | Internal Server Error | Falla no controlada durante la persistencia en la base de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Presencia de campos obligatorios (`nombre`, `apellido`, `dni`, `telefono`), longitudes máximas y formato de correo electrónico mediante DataAnnotations en `DuenoCreateDTO`.
-- **Verificación (Negocio, → 400/409):** Normalización de strings (`Trim()`), verificación de strings de solo espacios (`ValidationException` → 400) y verificación de unicidad de DNI contra la base de datos (`ExistsByDniAsync` → `DniDuplicadoException` → 409).
+- **Verificación (Negocio, → 400/409):** Normalización de strings (`Trim()`), verificación de strings de solo espacios (`ValidationException` → 400) y verificación de unicidad de DNI contra la base de datos (**RN-05**, `ExistsByDniAsync` → `DniDuplicadoException` → 409).
 
 ### Matriz de trazabilidad CU-02 → Test
 

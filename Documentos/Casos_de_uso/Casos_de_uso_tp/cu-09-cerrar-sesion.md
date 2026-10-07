@@ -1,7 +1,7 @@
 # Caso de Uso: Cerrar Sesión
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del cierre de sesión seguro con revocación de tokens JWT / Refresh Tokens (**RN-01**) y auditoría de desconexión.
+> Implementación del cierre de sesión seguro con revocación de tokens JWT / Refresh Tokens y auditoría de desconexión.
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Usuario del Sistema → cerrar de forma segura su cuenta en terminales compartidas; Administración → garantizar que las sesiones finalizadas no puedan ser reutilizadas mediante navegación del navegador o reenvío de tokens |
 | **Disparador (Trigger)** | El usuario selecciona la opción "Cerrar Sesión" desde el menú de usuario |
 | **Prioridad / Frecuencia** | Alta; alta frecuencia diaria (al finalizar la jornada o al cambiar de usuario en el puesto) |
-| **Reglas de negocio relacionadas** | RN-01 (invalidación de token: ninguna funcionalidad protegida podrá ser accedida tras el cierre de sesión sin reautenticación previa) |
+| **Reglas de negocio relacionadas** | Ninguna (aplica gestión de sesiones y seguridad técnica) |
 
 ---
 
@@ -26,7 +26,7 @@ Permite a un usuario autenticado finalizar su sesión de manera segura, invalida
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `POST /api/auth/logout` incluyendo el Token JWT en el encabezado `Authorization`.
 2. La **Capa de Presentación** (`AuthController.Logout`) comprueba la presencia del token y los claims del usuario autenticado.
-3. La **Capa de Negocio** (`AuthService.LogoutAsync`) revoca los Refresh Tokens asociados al usuario (**RN-01**) y registra el evento de cierre de sesión en la bitácora de auditoría.
+3. La **Capa de Negocio** (`AuthService.LogoutAsync`) revoca los Refresh Tokens asociados al usuario y registra el evento de cierre de sesión en la bitácora de auditoría.
 4. La **Capa de Persistencia** actualiza el estado de los tokens en la tabla `RefreshTokens` marcándolos como revocados.
 5. El Sistema devuelve un código **200 OK** con el mensaje de confirmación y el cliente elimina el token almacenado en local/sessionStorage, redirigiendo a la pantalla de login.
 
@@ -52,7 +52,7 @@ Permite a un usuario autenticado finalizar su sesión de manera segura, invalida
 2. Cierre de sesión global en todos los dispositivos (`POST /api/auth/logout-all`).
 
 ### 6. POSTCONDICIONES
-- Los tokens de sesión y refresh tokens quedan revocados e inhabilitados (**RN-01**).
+- Los tokens de sesión y refresh tokens quedan revocados e inhabilitados.
 - La interfaz de usuario redirige al formulario de inicio de sesión y limpia el almacenamiento local.
 
 ---
@@ -70,7 +70,7 @@ Permite a un usuario autenticado finalizar su sesión de manera segura, invalida
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 401):** Verificación de firma y vigencia del token JWT en el middleware de autenticación.
-- **Verificación (Negocio, → 200/500):** Revocación de refresh tokens en base de datos y auditoría de seguridad (**RN-01**).
+- **Verificación (Negocio, → 200/500):** Revocación de refresh tokens en base de datos y registro de auditoría de seguridad.
 
 ### Matriz de trazabilidad CU-09 → Test
 

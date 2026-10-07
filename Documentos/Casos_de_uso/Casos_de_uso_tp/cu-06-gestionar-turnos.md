@@ -1,7 +1,7 @@
 # Caso de Uso: Gestionar Turnos
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del ciclo de vida de los turnos con reglas de negocio RN-01 (no solapamiento de agenda por veterinario), RN-02 (asociación obligatoria de mascota activa y dueño) y RN-03 (inmutabilidad de turnos finalizados).
+> Implementación del ciclo de vida de los turnos con reglas de negocio RN-06 (asociación a dueño registrado), RN-07 (restricción en mascotas inactivas), RN-08 (no solapamiento de agenda por veterinario) y RN-09 (inmutabilidad de turnos finalizados).
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Recepcionista / Veterinario → coordinar, registrar, reprogramar y cancelar turnos de manera fluida y sin conflictos de agenda; Dueño de la Mascota → asegurar una cita confirmada para su animal en el día y horario pactado; Clínica Veterinaria → optimizar la ocupación de consultorios y resguardar el historial |
 | **Disparador (Trigger)** | El usuario selecciona la opción "Turnos" desde el menú principal y elige registrar, reprogramar o cancelar una cita |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia diaria |
-| **Reglas de negocio relacionadas** | RN-01 (sin solapamiento horario para un mismo veterinario); RN-02 (vinculación obligatoria con mascota en estado activa y dueño registrado); RN-03 (inmutabilidad de turnos finalizados) |
+| **Reglas de negocio relacionadas** | RN-06 (asociación de mascota a dueño registrado); RN-07 (mascotas inactivas no pueden recibir nuevos turnos); RN-08 (no solapamiento de turnos para un mismo veterinario); RN-09 (inmutabilidad de turnos finalizados) |
 
 ---
 
@@ -21,13 +21,13 @@ Permite a la recepcionista o al veterinario registrar un nuevo turno, reprograma
 
 ### 2. PRECONDICIONES
 - El actor debe contar con una sesión activa y un Token JWT con permisos correspondientes.
-- La mascota debe estar registrada en el sistema, encontrarse en estado **Activa** y estar asociada a un dueño registrado (**RN-02**).
+- La mascota debe estar registrada en el sistema, encontrarse en estado **Activa** (**RN-07**) y estar asociada a un dueño registrado (**RN-06**).
 - El veterinario asignado debe encontrarse registrado y habilitado en la clínica.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/turnos` con un cuerpo JSON que incluye `mascotaId`, `veterinarioId`, `fechaHora` y `motivoConsulta`.
 2. La **Capa de Presentación** (`TurnosController.CreateTurno`) valida la estructura del payload y los atributos de validación (`TurnoCreateDTO`).
-3. La **Capa de Negocio** (`TurnoService.CreateTurnoAsync`) verifica la existencia de la mascota y su dueño, comprueba que la mascota se encuentre en estado **Activa** (**RN-02**), corrobora la existencia del veterinario, y comprueba que el profesional no tenga otro turno asignado en el mismo rango horario aplicando la regla **RN-01**.
+3. La **Capa de Negocio** (`TurnoService.CreateTurnoAsync`) verifica la existencia de la mascota y su dueño (**RN-06**), comprueba que la mascota se encuentre en estado **Activa** (**RN-07**), corrobora la existencia del veterinario, y comprueba que el profesional no tenga otro turno asignado en el mismo rango horario aplicando la regla **RN-08**.
 4. La **Capa de Persistencia** guarda el nuevo turno en la tabla `Turnos` con estado `"Confirmado"`.
 5. El Sistema devuelve un código **201 Created** con los datos completos del turno creado (`TurnoResponseDTO`) y la cabecera `Location`.
 
@@ -44,27 +44,27 @@ Permite a la recepcionista o al veterinario registrar un nuevo turno, reprograma
   3. El Sistema devuelve un código **400 Bad Request** con el detalle del campo inválido. Fin del caso de uso.
 
 * **3a. Horario no disponible / Solapamiento de turno (HTTP 409 Conflict):**
-  1. Si en el Paso 3 la verificación de agenda detecta que el veterinario ya tiene un turno reservado para ese mismo horario, violando la regla **RN-01**.
+  1. Si en el Paso 3 la verificación de agenda detecta que el veterinario ya tiene un turno reservado para ese mismo horario, violando la regla **RN-08**.
   2. La Capa de Negocio frena la operación y lanza la excepción `HorarioNoDisponibleException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"El veterinario seleccionado ya posee un turno en dicho horario."`. Fin del caso de uso.
 
 * **3b. Mascota o Dueño no registrado (HTTP 404 Not Found):**
-  1. Si en el Paso 3 el `mascotaId` no existe en la base de datos (**RN-02**).
+  1. Si en el Paso 3 el `mascotaId` no existe en la base de datos o no se encuentra asociado a un dueño registrado (**RN-06**).
   2. La Capa de Negocio lanza la excepción `MascotaNotFoundException`.
   3. El Sistema devuelve un código **404 Not Found**. Fin del caso de uso.
 
 * **3c. Veterinario inexistente o inactivo (HTTP 404 Not Found):**
-  1. Si en el Paso 3 el `veterinarioId` no corresponde a un profesional registrado y activo.
+  1. Si en el Paso 3 el `veterinarioId` no corresponde a un profesional registrado y habilitado.
   2. La Capa de Negocio lanza `VeterinarioNotFoundException`.
   3. El Sistema devuelve un código **404 Not Found**. Fin del caso de uso.
 
 * **3d. Cancelar o modificar un turno ya finalizado (HTTP 409 Conflict):**
-  1. Si durante una operación de modificación (`PUT /api/turnos/{id}`) o cancelación (`PATCH /api/turnos/{id}/cancelar`) el turno se encuentra en estado `"Finalizado"`, violando la regla **RN-03**.
+  1. Si durante una operación de modificación (`PUT /api/turnos/{id}`) o cancelación (`PATCH /api/turnos/{id}/cancelar`) el turno se encuentra en estado `"Finalizado"`, violando la regla **RN-09**.
   2. La Capa de Negocio lanza la excepción `TurnoFinalizadoException`.
   3. El Sistema devuelve un código **409 Conflict** indicando: `"No es posible modificar ni cancelar un turno finalizado."`. Fin del caso de uso.
 
 * **3e. Intento de asignar turno a mascota inactiva (HTTP 409 Conflict):**
-  1. Si en el Paso 3 la mascota seleccionada se encuentra en estado `"Inactiva"`, violando la regla **RN-02**.
+  1. Si en el Paso 3 la mascota seleccionada se encuentra en estado `"Inactiva"`, violando la regla **RN-07**.
   2. La Capa de Negocio frena la operación y lanza la excepción `MascotaInactivaException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"No es posible asignar un nuevo turno a una mascota inactiva."`. Fin del caso de uso.
 
@@ -93,14 +93,14 @@ Permite a la recepcionista o al veterinario registrar un nuevo turno, reprograma
 | `201` | Created | Registro exitoso del nuevo turno médico. |
 | `200` | OK | Confirmación de modificación o cancelación del turno. |
 | `400` | Bad Request | Parámetros incompletos, fecha en el pasado o JSON inválido. |
-| `404` | Not Found | Mascota, dueño o veterinario inexistente en el sistema. |
-| `409` | Conflict | Solapamiento de horario (RN-01), alteración de turno finalizado (RN-03) o asignación a mascota inactiva (RN-02). |
+| `404` | Not Found | Mascota, dueño o veterinario inexistente en el sistema (RN-06). |
+| `409` | Conflict | Solapamiento de horario (RN-08), alteración de turno finalizado (RN-09) o asignación a mascota inactiva (RN-07). |
 | `500` | Internal Server Error | Falla no controlada de persistencia en la base de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Presencia de identificadores requeridos, formato ISO de fecha/hora, restricción de fechas en el pasado y longitud máxima del motivo de consulta en `TurnoCreateDTO`.
-- **Verificación (Negocio, → 404/409):** Validación de existencia de mascota y dueño, comprobación de estado activo de la mascota (**RN-02**), verificación de no solapamiento en la agenda del profesional (**RN-01**) y restricción de alteración de turnos finalizados (**RN-03**).
+- **Verificación (Negocio, → 404/409):** Validación de existencia de mascota y dueño (**RN-06**), comprobación de estado activo de la mascota (**RN-07**), verificación de no solapamiento en la agenda del profesional (**RN-08**) y restricción de alteración de turnos finalizados (**RN-09**).
 
 ### Matriz de trazabilidad CU-06 → Test
 

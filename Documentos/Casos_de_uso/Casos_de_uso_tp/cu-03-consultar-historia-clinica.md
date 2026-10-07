@@ -1,7 +1,7 @@
 # Caso de Uso: Consultar Historia Clínica
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del acceso de solo lectura al expediente médico con regla de inmutabilidad histórica (**RN-01**) y consolidación modular de atenciones, vacunaciones, prescripciones y estudios (**RN-02**).
+> Implementación del acceso de solo lectura al expediente médico con regla de inmutabilidad de atenciones médicas (**RN-01**) e integración de registros clínicos (**RN-02**).
 
 | Campo | Valor |
 | --- | --- |
@@ -12,7 +12,7 @@
 | **Stakeholders e intereses** | Veterinario/a → consultar el historial clínico completo y antecedentes del paciente para formular diagnósticos certeros; Dueño de la Mascota → garantizar que la atención veterinaria considere la evolución y tratamientos previos del animal; Clínica Veterinaria → asegurar la integridad, inmutabilidad y disponibilidad del expediente médico |
 | **Disparador (Trigger)** | El veterinario selecciona la opción "Historia Clínica" desde el menú principal o busca a un paciente por ID, nombre o datos de su dueño |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia (en cada consulta médica o procedimiento clínico) |
-| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad histórica de atenciones y registros clínicos); RN-02 (consolidación integral de atenciones, vacunas, prescripciones y estudios) |
+| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad de las atenciones médicas); RN-02 (integración de registros clínicos a la historia clínica) |
 
 ---
 
@@ -59,7 +59,7 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 
 ### 6. POSTCONDICIONES
 - La historia clínica y sus módulos vinculados quedan expuestos para visualización por parte del profesional.
-- No se altera ningún dato ni estado en el sistema (operación segura y de solo lectura).
+- No se altera ningún dato ni estado en el sistema (operación de solo lectura).
 
 ---
 
@@ -77,7 +77,7 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400):** Comprobación de formato del identificador de ruta y sanitización de parámetros de búsqueda en `HistoriaClinicaController`.
-- **Verificación (Negocio, → 404):** Validación de existencia de la entidad en la base de datos (`HistoriaClinicaService`), ordenamiento cronológico inmutable de atenciones (**RN-01**) y agregación de historial médico (**RN-02**).
+- **Verificación (Negocio, → 404):** Validación de existencia de la entidad en la base de datos (`HistoriaClinicaService`), ordenamiento cronológico inmutable de atenciones (**RN-01**) e integración de registros clínicos (**RN-02**).
 
 ### Matriz de trazabilidad CU-03 → Test
 
