@@ -5,6 +5,7 @@
 > Incorpora el control de navegación y advertencia de cambios sin guardar (INF-04).
 > Incorpora el registro opcional de procedimientos quirúrgicos dentro de la atención médica y explicita la exclusión de consentimiento digital y firma en la primera entrega (INF-06).
 > Incorpora la actualización automática de la fecha de última visita de la mascota al guardar exitosamente la atención médica (INF-07).
+> Incorpora la aclaración sobre registro de estudios médicos y resultados diferidos (AMB-01).
 
 | Campo | Valor |
 | --- | --- |
@@ -22,6 +23,8 @@
 
 ### 1. BREVE DESCRIPCIÓN
 Permite al veterinario asentar una nueva atención médica en la historia clínica de una mascota activa, registrando el motivo de consulta, anamnesis, examen físico, diagnóstico, tratamiento y observaciones, con la posibilidad de extender la consulta agregando prescripciones de medicamentos, solicitud o adjunto de estudios complementarios, registro opcional de procedimientos quirúrgicos realizados durante la consulta, y de manera opcional la evaluación de aptitud para vacunación mediante checklist clínica (APTO/NO APTO) con el consecuente registro de vacunas aplicadas en caso de resultar apto.
+
+El Veterinario puede registrar estudios y sus resultados durante una atención médica. No se permite incorporar información a una atención previamente guardada. Si los resultados llegan posteriormente, deberán registrarse mediante una nueva atención médica.
 
 Al guardarse exitosamente la atención médica, el sistema actualiza de forma automática la fecha de última visita de la mascota en su información general e Historia Clínica utilizando la fecha de dicha atención (asegurando que siempre represente la atención más reciente por fecha y pasando de «Sin visitas registradas» a la fecha actual en caso de ser su primera atención), como parte de la misma transacción de guardado y sin requerir ninguna acción adicional ni manual por parte del Veterinario.
 
@@ -118,7 +121,7 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
 ### 5. SUB-VARIACIONES (opcional)
 1. **Atención médica simple (sin cirugía):** Contiene únicamente la evaluación clínica, diagnóstico y tratamiento ambulatorio sin medicación especial, vacunas, estudios ni procedimientos quirúrgicos. El Veterinario no selecciona registrar cirugía y el sistema guarda la atención normalmente sin información quirúrgica.
 2. **Atención médica con prescripción múltiple:** Permite agregar una lista con múltiples medicamentos recetados con sus respectivas dosis y frecuencias.
-3. **Atención médica con solicitud de estudios:** Permite solicitar estudios diagnósticos (radiografías, análisis de sangre, ecografías) o adjuntar resultados existentes.
+3. **Atención médica con solicitud de estudios:** Permite solicitar estudios diagnósticos (radiografías, análisis de sangre, ecografías) o adjuntar resultados existentes. El Veterinario puede registrar estudios y sus resultados durante una atención médica. No se permite incorporar información a una atención previamente guardada. Si los resultados llegan posteriormente, deberán registrarse mediante una nueva atención médica.
 4. **Atención médica con evaluación de aptitud y vacunación:** El profesional completa la checklist clínica (sin fiebre, buen estado general, sin enfermedad infecciosa aguda, autorización veterinaria). Al resultar `"APTO"`, el sistema habilita el registro de la vacuna aplicada (lote, vacuna, fecha de próxima dosis), persistiendo ambos registros.
 5. **Atención médica con paciente evaluado NO APTO para vacunación:** El profesional completa la checklist clínica y el resultado es `"NO APTO"`. El sistema bloquea el registro de la vacunación pero permite guardar y finalizar normalmente la atención médica, asentando el resultado `"NO APTO"` de la evaluación en la historia clínica.
 6. **Atención médica con procedimiento quirúrgico:** El Veterinario selecciona la opción de registrar una cirugía realizada durante la consulta, completando el tipo de procedimiento (ej. castración, sutura, extracción de tumor), la descripción de la intervención y, de corresponder, observaciones o complicaciones. La fecha y el Veterinario responsable son asignados automáticamente por el sistema a partir de la atención actual. Al guardar, el procedimiento se registra vinculado a la atención y a la Historia Clínica (**RN-01**, **RN-02**).
