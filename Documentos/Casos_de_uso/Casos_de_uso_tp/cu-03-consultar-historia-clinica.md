@@ -3,6 +3,7 @@
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del acceso de solo lectura al expediente médico con regla de inmutabilidad de atenciones médicas (**RN-01**) e integración de registros clínicos (**RN-02**).
 > Incorpora la consulta histórica de procedimientos quirúrgicos registrados en las atenciones médicas (INF-06).
+> Incorpora la visualización de la fecha de última visita en la información general de la mascota (INF-07).
 
 | Campo | Valor |
 | --- | --- |
@@ -19,7 +20,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al veterinario consultar la historia clínica completa de una mascota registrada en el sistema, visualizando sus datos generales, resumen clínico, antecedentes, atenciones médicas previas (incluyendo los procedimientos quirúrgicos realizados, si los hubiere), registro de vacunas aplicadas, prescripciones farmacológicas y estudios complementarios asociados. La información se presenta de forma integrada en el expediente del paciente, sin secciones ni módulos quirúrgicos independientes.
+Permite al veterinario consultar la historia clínica completa de una mascota registrada en el sistema, visualizando sus datos generales —incluyendo la fecha de última visita correspondiente a la atención médica más reciente registrada o «Sin visitas registradas» si aún no posee atenciones—, resumen clínico, antecedentes, atenciones médicas previas (incluyendo los procedimientos quirúrgicos realizados, si los hubiere), registro de vacunas aplicadas, prescripciones farmacológicas y estudios complementarios asociados. La información se presenta de forma integrada en el expediente del paciente, sin secciones ni módulos quirúrgicos independientes y con campos estrictamente de solo lectura.
 
 ### 2. PRECONDICIONES
 - El veterinario debe haber iniciado sesión y poseer un Token JWT válido con rol de `Veterinario` o `Administrador`.
@@ -29,7 +30,7 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `GET /api/mascotas/{mascotaId}/historia-clinica` con el identificador de la mascota como parámetro de ruta.
 2. La **Capa de Presentación** (`HistoriaClinicaController.GetHistoriaClinicaByMascotaId`) valida que el parámetro `{mascotaId}` tenga un formato de identificador válido.
-3. La **Capa de Negocio** (`HistoriaClinicaService.GetHistoriaClinicaAsync`) verifica la existencia de la mascota y recupera su historia clínica junto con las secciones correspondientes (**RN-02**): datos generales, atenciones médicas ordenadas cronológicamente (**RN-01**) —incluyendo el detalle de los procedimientos quirúrgicos realizados en cada atención (tipo de procedimiento, fecha de realización, descripción de la intervención, veterinario responsable y observaciones o complicaciones)—, historial de vacunas, prescripciones y estudios.
+3. La **Capa de Negocio** (`HistoriaClinicaService.GetHistoriaClinicaAsync`) verifica la existencia de la mascota y recupera su historia clínica junto con las secciones correspondientes (**RN-02**): datos generales de la mascota —incluyendo el campo de solo lectura con la fecha de última visita (la cual refleja la atención médica más reciente guardada o «Sin visitas registradas» si no registra atenciones previas)—, atenciones médicas ordenadas cronológicamente (**RN-01**) —incluyendo el detalle de los procedimientos quirúrgicos realizados en cada atención (tipo de procedimiento, fecha de realización, descripción de la intervención, veterinario responsable y observaciones o complicaciones)—, historial de vacunas, prescripciones y estudios.
 4. La **Capa de Persistencia** ejecuta una consulta optimizada de solo lectura (`AsNoTracking()`) proyectando las entidades a `HistoriaClinicaResponseDTO`.
 5. El Sistema devuelve un código **200 OK** con la información detallada de la historia clínica.
 
@@ -47,8 +48,8 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 
 * **3b. Mascota sin atenciones previas registradas (HTTP 200 OK):**
   1. Si en el Paso 3 la mascota existe y posee historia clínica pero aún no cuenta con atenciones médicas, vacunas, prescripciones ni cirugías cargadas.
-  2. La Capa de Negocio construye el DTO con los datos de filiación de la mascota y listas vacías para las atenciones y tratamientos.
-  3. El Sistema devuelve un código **200 OK** con la estructura básica y el mensaje informativo `"Sin atenciones médicas registradas a la fecha."`.
+  2. La Capa de Negocio construye el DTO con los datos de filiación y datos generales de la mascota exponiendo la fecha de última visita con el valor «Sin visitas registradas», y listas vacías para las atenciones y tratamientos.
+  3. El Sistema devuelve un código **200 OK** con la estructura básica, la indicación de «Sin visitas registradas» en los datos generales y el mensaje informativo `"Sin atenciones médicas registradas a la fecha."`.
 
 * **4a. Error de conexión con la base de datos (HTTP 500 Internal Server Error):**
   1. Si en el Paso 4 ocurre un error técnico de persistencia o timeout de la base de datos.
@@ -62,6 +63,7 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 
 ### 6. POSTCONDICIONES
 - La historia clínica y sus módulos vinculados (incluyendo atenciones y procedimientos quirúrgicos históricos) quedan expuestos para visualización por parte del profesional.
+- La fecha de última visita visualizada en los datos generales es de solo lectura y corresponde a la atención médica más reciente registrada (o «Sin visitas registradas»), sin posibilidad de edición manual.
 - No se altera ningún dato ni estado en el sistema (operación de solo lectura). Los procedimientos quirúrgicos registrados permanecen inmutables (**RN-01**), sin posibilidad de ser modificados ni eliminados desde la consulta.
 
 ---
@@ -76,6 +78,12 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 | `400` | Bad Request | Formato de identificador o parámetros de búsqueda inválidos. |
 | `404` | Not Found | Mascota o historia clínica inexistente en el sistema. |
 | `500` | Internal Server Error | Error no controlado en la consulta a la base de datos. |
+
+### Visualización de la Fecha de Última Visita (INF-07)
+
+- **Ubicación en la vista:** Se exhibe dentro del bloque de información general de la mascota en la Historia Clínica, sin requerir pestañas ni vistas adicionales.
+- **Valor visualizado:** Muestra la fecha correspondiente a la atención médica más reciente guardada exitosamente en el sistema. En caso de mascotas que aún no tengan ninguna atención registrada, el campo muestra «Sin visitas registradas».
+- **Naturaleza de solo lectura:** La fecha de última visita es un dato puramente informativo derivado del historial clínico; el sistema no permite su modificación manual ni intervención directa por parte de los usuarios.
 
 ### Visualización de Procedimientos Quirúrgicos y Alcance Clínico
 
