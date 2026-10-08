@@ -132,6 +132,8 @@ La clínica veterinaria Patitas ha planteado la necesidad de incorporar funciona
 
 Asimismo, no se implementará la administración completa de medicamentos (Gestión de Medicación y Prescripciones), ni la validación de firma digital para procedimientos quirúrgicos (Gestión de Procedimientos y Consentimientos).
 
+Tampoco se implementarán sistemas de guardado automático de borradores ni recuperación automática de sesiones ante eventos externos o no controlados por la aplicación (tales como el cierre intempestivo de la ventana o pestaña del navegador, la recarga forzada de página o la pérdida imprevista de conectividad), quedando señaladas estas limitaciones técnicas para una futura evaluación.
+
 Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, una vez validada la base operativa de la solución.
 
 # 5. Requerimientos
@@ -157,8 +159,8 @@ Estas funcionalidades podrán incorporarse en futuras iteraciones del sistema, u
 - El sistema deberá mostrar al veterinario su agenda diaria de atenciones y procedimientos programados.
 - El sistema deberá permitir registrar dueños y asociarles una o más mascotas. Al registrar una mascota, el sistema generará automáticamente su historia clínica.
 - El sistema deberá registrar los turnos cancelados, indicando la fecha de cancelación, para su posterior consulta en los reportes del sistema.
-- El sistema deberá generar reportes de atenciones médicas realizadas, vacunas aplicadas, mascotas registradas y dueños registrados.
-- El sistema deberá advertir al usuario cuando intente abandonar una atención médica con información sin guardar, informando que los datos ingresados se perderán si no son registrados.
+- El sistema deberá generar reportes de atenciones médicas realizadas, vacunas aplicadas, mascotas registradas y dueños registradas.
+- El sistema deberá advertir al Veterinario cuando intente abandonar el formulario de una atención médica habiendo ingresado o modificado información que aún no fue guardada, mediante acciones de navegación controladas por el sistema (regresar a la pantalla anterior, seleccionar otra sección, seleccionar otra mascota o historia clínica, cancelar el registro o cerrar el formulario). La advertencia se presentará mediante un mensaje de confirmación con el título "¿Desea salir sin guardar?" y el mensaje "Los datos ingresados se perderán si abandona esta atención.", ofreciendo las opciones: (a) "Continuar editando": cierra la advertencia, mantiene al Veterinario en el formulario y conserva toda la información ingresada sin registrar ni descartar la atención; (b) "Salir sin guardar": descarta la información no guardada, abandona el formulario y no registra una nueva atención médica ni genera registros clínicos asociados. Si el Veterinario cierra la advertencia sin seleccionar una opción, permanecerá en el formulario conservando sus datos. Si el formulario no posee cambios pendientes, el sistema permitirá salir inmediatamente sin mostrar advertencia. La advertencia no guardará automáticamente una atención incompleta ni recuperará borradores. Ante errores durante el guardado, el sistema informará que la atención no pudo guardarse, conservará todos los datos ingresados en el formulario y permitirá corregir o reintentar el guardado, sin dar por registrada la atención y preservando la inmutabilidad de las atenciones ya registradas (RN-01).
 - El sistema deberá registrar automáticamente las vacunas aplicadas, las prescripciones emitidas y los estudios adjuntados durante una atención médica en sus respectivos historiales dentro de la historia clínica del paciente.
 
 ## 5.2 Requerimientos No Funcionales

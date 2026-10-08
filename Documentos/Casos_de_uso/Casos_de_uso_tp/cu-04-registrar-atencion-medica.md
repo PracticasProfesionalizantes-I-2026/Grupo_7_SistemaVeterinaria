@@ -2,12 +2,14 @@
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del registro clínico con reglas de negocio RN-01 (inmutabilidad de atenciones médicas), RN-02 (integración de registros clínicos a la historia clínica), RN-03 (evaluación de aptitud para vacunación), RN-04 (vacunación condicionada a aptitud clínica) y RN-07 (restricción de atención en mascotas inactivas).
+> Incorpora el control de navegación y advertencia de cambios sin guardar (INF-04).
 
 | Campo | Valor |
 | --- | --- |
 | **ID del Caso de Uso** | CU-04 |
 | **Nombre** | Registrar Atención Médica |
 | **Actor Principal** | Veterinario/a |
+| **Actores Secundarios** | Ninguno |
 | **Alcance / Nivel** | Sistema; meta de usuario |
 | **Stakeholders e intereses** | Veterinario/a → asentar de forma rigurosa el diagnóstico, evolución, prescripciones y vacunaciones realizadas; Dueño de la Mascota → recibir indicaciones claras de tratamiento y constancia de vacunas aplicadas; Clínica Veterinaria → cumplir normativas de historia clínica inmutable y control sanitario |
 | **Disparador (Trigger)** | El veterinario selecciona la opción "Nueva Atención" desde la historia clínica de una mascota |
@@ -19,13 +21,15 @@
 ### 1. BREVE DESCRIPCIÓN
 Permite al veterinario asentar una nueva atención médica en la historia clínica de una mascota activa, registrando el motivo de consulta, anamnesis, examen físico, diagnóstico, tratamiento y observaciones, con la posibilidad de extender la consulta agregando prescripciones de medicamentos, solicitud o adjunto de estudios complementarios, y de manera opcional la evaluación de aptitud para vacunación mediante checklist clínica (APTO/NO APTO) con el consecuente registro de vacunas aplicadas en caso de resultar apto.
 
+El sistema controla el abandono del formulario durante la carga, advirtiendo al profesional cuando existen modificaciones sin guardar para evitar la pérdida involuntaria de información, permitiendo decidir entre continuar editando o descartar los cambios. Si no existen modificaciones pendientes, permite salir sin advertencia. Asimismo, ante errores durante el guardado, el sistema conserva los datos ingresados para permitir correcciones y reintentos, sin registrar atenciones incompletas ni alterar la inmutabilidad de las atenciones existentes.
+
 ### 2. PRECONDICIONES
 - El veterinario debe haber iniciado sesión y contar con un Token JWT activo con rol de `Veterinario`.
 - La mascota debe encontrarse registrada en el sistema, en estado **Activa** (**RN-07**), y contar con una historia clínica vinculada.
 - La Capa de Persistencia debe estar operativa y lista para transacciones ACID.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
-1. El Actor envía una petición al endpoint `POST /api/atenciones` con un cuerpo JSON que contiene los datos de la atención clínica (`mascotaId`, `motivoConsulta`, `anamnesis`, `examenFisico`, `diagnostico`, `tratamiento`, `observaciones`) y de forma opcional las listas de prescripciones (`prescripciones[]`), estudios (`estudios[]`), evaluación de aptitud para vacunación (`evaluacionAptitud`) y registro de vacunas aplicadas (`vacunacion`).
+1. El Veterinario accede al formulario de "Nueva Atención" desde la historia clínica de una mascota activa y completa los datos clínicos (`mascotaId`, `motivoConsulta`, `anamnesis`, `examenFisico`, `diagnostico`, `tratamiento`, `observaciones`) y, de forma opcional, las listas de prescripciones (`prescripciones[]`), estudios (`estudios[]`), evaluación de aptitud para vacunación (`evaluacionAptitud`) y registro de vacunas aplicadas (`vacunacion`). Una vez ingresada la información, solicita registrar la atención médica enviando una petición al endpoint `POST /api/atenciones`.
 2. La **Capa de Presentación** (`AtencionesController.CreateAtencion`) valida la estructura del payload y verifica que los campos obligatorios del DTO principal y de los sub-objetos estén completos (`AtencionCreateDTO`).
 3. La **Capa de Negocio** (`AtencionService.CreateAtencionAsync`) valida la existencia de la mascota y comprueba que se encuentre en estado **Activa** (**RN-07**), valida su historia clínica, extrae el ID del veterinario autenticado desde los claims del token, y asegura la trazabilidad clínica (**RN-02**). Si se incluye evaluación de aptitud para vacunación mediante la checklist clínica, valida y registra el resultado (`"APTO"` o `"NO_APTO"`) (**RN-03**). Si se incluye registro de vacuna, comprueba que la evaluación de aptitud marque estrictamente resultado `"APTO"` (**RN-04**).
 4. La **Capa de Persistencia** ejecuta una transacción en base de datos (`DbContext.SaveChangesAsync`), creando el registro inmutable en `Atenciones` (**RN-01**) y guardando en cascada las prescripciones, solicitudes de estudio, el resultado de la evaluación de aptitud y las vacunas aplicadas vinculadas a dicha atención (**RN-02**).
@@ -63,10 +67,36 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
   2. La Capa de Negocio frena la operación y lanza la excepción `MascotaInactivaException`.
   3. El Sistema devuelve un código **409 Conflict** con el mensaje: `"No es posible registrar una nueva atención médica para una mascota inactiva."`. Fin del caso de uso.
 
-* **4a. Error en la transacción de persistencia (HTTP 500 Internal Server Error):**
-  1. Si en el Paso 4 falla la persistencia en base de datos (rollback automático de la transacción).
-  2. El middleware de excepciones intercepta el fallo.
-  3. El Sistema devuelve un código **500 Internal Server Error**. Fin del caso de uso.
+* **4a. Error al guardar / Falla en la persistencia (HTTP 500 Internal Server Error):**
+  1. Si en el Paso 4 ocurre un error durante la transacción de persistencia en base de datos (rollback automático de la transacción) o fallo de comunicación con el servidor.
+  2. El middleware de excepciones intercepta el fallo y el Sistema devuelve un código **500 Internal Server Error**.
+  3. El sistema informa al Veterinario mediante un mensaje de error que la atención médica no pudo guardarse, evitando cualquier mensaje falso o confirmación indebida de registro.
+  4. El sistema conserva intactos en el formulario todos los datos clínicos previamente ingresados (motivo, anamnesis, examen físico, diagnóstico, tratamiento, observaciones, prescripciones, estudios y checklists).
+  5. El Veterinario permanece en el formulario y puede revisar la información cargada, corregir datos o reintentar el guardado sin perder los datos ingresados.
+
+* **A1 — Abandonar atención con cambios sin guardar:**
+  1. Durante el Paso 1, el Veterinario ingresa o modifica información en el formulario de atención médica.
+  2. Antes de guardar, el Veterinario intenta abandonar el formulario mediante una acción de navegación controlada por el sistema (regresar a la pantalla anterior, seleccionar otra sección del sistema, seleccionar otra mascota o historia clínica, cancelar el registro de la atención o cerrar el formulario de registro).
+  3. El sistema detecta que existen cambios o datos ingresados sin guardar.
+  4. El sistema muestra un mensaje de confirmación con la siguiente advertencia:
+     - **Título:** `¿Desea salir sin guardar?`
+     - **Mensaje:** `Los datos ingresados se perderán si abandona esta atención.`
+     - **Opciones:** `Continuar editando` | `Salir sin guardar`
+  5. El Veterinario selecciona una de las opciones disponibles:
+     - **Si selecciona "Continuar editando" (o cierra la advertencia sin seleccionar una opción):**
+       6. El sistema cierra la advertencia.
+       7. El Veterinario permanece en el formulario de atención médica.
+       8. Los datos ingresados se conservan intactos. No se registra ni se descarta la atención. El Veterinario puede continuar la carga o solicitar el guardado.
+     - **Si selecciona "Salir sin guardar":**
+       6. El sistema descarta los datos no guardados.
+       7. El Veterinario abandona el formulario y se redirige a la sección o pantalla solicitada.
+       8. La atención médica no queda registrada en el sistema. No se generan registros clínicos a partir de los datos descartados. Fin del caso de uso.
+
+* **A2 — Salir sin cambios pendientes:**
+  1. Durante el Paso 1, el Veterinario intenta abandonar el formulario de atención médica (mediante cualquiera de las acciones de navegación controladas) sin haber ingresado ni modificado información.
+  2. El sistema detecta que no existen cambios pendientes ni información cargada en el formulario.
+  3. El sistema permite salir inmediatamente hacia la sección o pantalla solicitada, sin mostrar la advertencia.
+  4. La atención médica no queda registrada. Fin del caso de uso.
 
 ### 5. SUB-VARIACIONES (opcional)
 1. **Atención médica simple:** Contiene únicamente la evaluación clínica, diagnóstico y tratamiento ambulatorio sin medicación especial, vacunas ni evaluación de aptitud.
@@ -76,9 +106,15 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 5. **Atención médica con paciente evaluado NO APTO para vacunación:** El profesional completa la checklist clínica y el resultado es `"NO APTO"`. El sistema bloquea el registro de la vacunación pero permite guardar y finalizar normalmente la atención médica, asentando el resultado `"NO APTO"` de la evaluación en la historia clínica.
 
 ### 6. POSTCONDICIONES
-- La atención médica queda registrada de forma inmutable (**RN-01**) en la tabla `Atenciones`, incluyendo el resultado de la evaluación de aptitud si fue efectuada (`APTO` o `NO APTO`) (**RN-03**).
-- Las prescripciones, estudios y vacunas aplicadas (en caso de resultar `APTO`) quedan asociadas automáticamente a la atención y a la historia clínica (**RN-02**).
-- Si se aplicaron vacunas con aptitud aprobada, se actualizan los indicadores de última consulta y próximas vacunas de la mascota.
+- **Registro exitoso (Camino feliz):**
+  - La atención médica queda registrada de forma inmutable (**RN-01**) en la tabla `Atenciones`, pasando a formar parte formal de la historia clínica de la mascota, incluyendo el resultado de la evaluación de aptitud si fue efectuada (`APTO` o `NO APTO`) (**RN-03**).
+  - Las prescripciones, estudios y vacunas aplicadas (en caso de resultar `APTO`) quedan asociadas automáticamente a la atención y a la historia clínica (**RN-02**).
+  - Si se aplicaron vacunas con aptitud aprobada, se actualizan los indicadores de última consulta y próximas vacunas de la mascota.
+- **Salida o abandono del formulario (Flujos A1 / A2):**
+  - Si el profesional abandona el formulario saliendo sin guardar o sin cambios pendientes, ningún dato clínico es persistido en la base de datos ni formará parte de la historia clínica.
+  - La atención descartada no se computa como atención realizada ni afecta los antecedentes históricos del paciente.
+- **Falla en el guardado (Flujo 4a):**
+  - Ante una falla de persistencia o error de red, la transacción se revierte íntegramente; no se registra una atención incompleta y los datos permanecen cargados en el formulario para permitir la corrección o un nuevo intento de guardado por parte del Veterinario.
 
 ---
 
@@ -94,14 +130,24 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 | `409` | Conflict | Violación de regla de negocio RN-04 (vacunación sin aptitud APTO) o RN-07 (intento de registrar atención en mascota inactiva). |
 | `500` | Internal Server Error | Error no controlado durante la transacción de guardado en la base de datos. |
 
+### Consideraciones de Navegación y Limitaciones Técnicas
+
+- **Acciones de navegación controladas:** La advertencia modal de abandono con datos sin guardar aplica ante eventos de navegación dentro de la aplicación gestionados por el sistema:
+  - Regresar a la pantalla anterior.
+  - Seleccionar otra sección o módulo del sistema.
+  - Seleccionar otra mascota o consultar otra Historia Clínica.
+  - Cancelar el registro de la atención mediante el botón correspondiente.
+  - Cerrar el formulario de registro.
+- **Limitaciones técnicas ante eventos externos:** El sistema no cuenta con autoguardado periódico ni recuperación de borradores ante acciones imprevistas fuera del control del ciclo de navegación de la aplicación (tales como cierre forzado de pestaña o ventana del navegador, recarga manual de página `F5` / `Ctrl+R` o pérdida de conexión de red/energía). No se promete recuperación automática de datos bajo estas contingencias, quedando señaladas dichas limitaciones para su evaluación técnica futura.
+
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400):** Se validan formatos de texto, presencia de campos obligatorios clínicos (`motivoConsulta`, `diagnostico`, `tratamiento`) y esquemas válidos en las colecciones hijas (`PrescripcionDTO`, `EstudioDTO`).
+- **Validación (Presentación, → 400 / UI):** Se validan formatos de texto, presencia de campos obligatorios clínicos (`motivoConsulta`, `diagnostico`, `tratamiento`), esquemas válidos en las colecciones hijas (`PrescripcionDTO`, `EstudioDTO`) y la detección de cambios pendientes en el formulario antes de la navegación.
 - **Verificación (Negocio, → 404/409):** Comprobación de existencia y estado activo de la mascota (**RN-07**), validación de su historia clínica e integración de registros (**RN-02**), evaluación de aptitud (**RN-03**), verificación estricta de la aptitud para vacunación (`APTO`) antes de habilitar el registro de la vacuna (**RN-04**) y persistencia inmutable de la atención médica (**RN-01**).
 
 ### Matriz de trazabilidad CU-04 → Test
 
-| Paso del CU | Excepción / Código | Test unitario (BusinessLogic) | Test integración (HTTP) |
+| Paso del CU | Excepción / Código | Test unitario (BusinessLogic) | Test integración (HTTP / UI) |
 | --- | --- | --- | --- |
 | Flujo principal (Apto + Vacuna) | `201 Created` | `CreateAtencionAsync_WithCompleteData_SavesAtencionAndRelatedEntities` | `CreateAtencion_WithValidData_Returns201Created` |
 | Flujo principal (Evaluado NO APTO) | `201 Created` | `CreateAtencionAsync_WhenVaccinationUnfitWithoutVaccine_SavesAtencionWithUnfitEvaluation` | `CreateAtencion_WhenVaccinationUnfitWithoutVaccine_Returns201Created` |
@@ -111,5 +157,9 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 | 3a. Mascota inexistente | `404 Not Found` | `CreateAtencionAsync_WhenMascotaNotExists_ThrowsMascotaNotFoundException` | `CreateAtencion_WhenMascotaNotExists_Returns404NotFound` |
 | 3b. Vacuna en paciente no apto | `409 Conflict` | `CreateAtencionAsync_WithUnfitVaccination_ThrowsPacienteNoAptoVacunacionException` | `CreateAtencion_WhenVaccinationUnfit_Returns409Conflict` |
 | 3c. Mascota inactiva | `409 Conflict` | `CreateAtencionAsync_WhenMascotaIsInactive_ThrowsMascotaInactivaException` | `CreateAtencion_WhenMascotaIsInactive_Returns409Conflict` |
+| 4a. Error de persistencia / Reintento | `500 Internal Server Error` | `CreateAtencionAsync_WhenDbFails_ThrowsExceptionAndRollbacks` | `CreateAtencion_WhenDbFails_Returns500AndPreservesFormData` |
+| A1. Salir con cambios pendientes | N/A (Modal UI) | — (Detección de estado 'dirty' / cambios pendientes en formulario) | `FormularioAtencion_AlIntentarSalirConCambios_MuestraAdvertenciaYPermiteDecidir` |
+| A2. Salir sin cambios pendientes | N/A (Navegación UI) | — (Verificación de formulario limpio / sin modificaciones) | `FormularioAtencion_AlSalirSinCambios_NavegaSinAdvertencia` |
 
-> Regla de oro: cada flujo del caso de uso debe tener al menos un test. En los flujos resueltos en la Capa de Presentación el test aplicable es el de integración HTTP. Los tests se ejecutan con `dotnet test SistemaVeterinaria.slnx`.
+> Regla de oro: cada flujo del caso de uso debe tener al menos un test. En los flujos resueltos en la Capa de Presentación el test aplicable es el de integración HTTP o prueba de interfaz de usuario. Los tests se ejecutan con `dotnet test SistemaVeterinaria.slnx`.
+
