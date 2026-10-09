@@ -2,14 +2,15 @@
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Regla de negocio RN-05 (unicidad del DNI del dueño) y validaciones de campos obligatorios implementadas en la Capa de Negocio y Presentación con su respectiva cobertura de pruebas.
+> Incorpora la habilitación del rol Veterinario junto a Recepcionista para registrar dueños, excluyendo al Administrador (AMB-02).
 
 | Campo | Valor |
 | --- | --- |
 | **ID del Caso de Uso** | CU-02 |
 | **Nombre** | Registrar Dueño |
-| **Actor Principal** | Recepcionista |
+| **Actor Principal** | Recepcionista o Veterinario/a |
 | **Alcance / Nivel** | Sistema; meta de usuario |
-| **Stakeholders e intereses** | Recepcionista → dar de alta de forma rápida y confiable a los clientes de la clínica; Dueño de la Mascota → quedar registrado en el padrón para poder vincular a sus animales y gestionar turnos; Veterinaria → asegurar la unicidad y veracidad de los datos de contacto |
+| **Stakeholders e intereses** | Recepcionista / Veterinario/a → dar de alta de forma rápida y confiable a los clientes de la clínica; Dueño de la Mascota → quedar registrado en el padrón para poder vincular a sus animales y gestionar turnos; Veterinaria → asegurar la unicidad y veracidad de los datos de contacto |
 | **Disparador (Trigger)** | La recepcionista selecciona la opción "Registrar Dueño" desde el módulo de administración de dueños |
 | **Prioridad / Frecuencia** | Alta; media/alta frecuencia (altas de nuevos clientes) |
 | **Reglas de negocio relacionadas** | RN-05 (unicidad del DNI del dueño) |
@@ -17,10 +18,10 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite a la recepcionista registrar un nuevo dueño en el sistema ingresando sus datos personales y de contacto (nombre, apellido, DNI, teléfono, domicilio y correo electrónico) para que quede disponible y pueda vincularse posteriormente a una o más mascotas.
+Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veterinario) registrar un nuevo dueño en el sistema ingresando sus datos personales y de contacto (nombre, apellido, DNI, teléfono, domicilio y correo electrónico) para que quede disponible y pueda vincularse posteriormente a una o más mascotas.
 
 ### 2. PRECONDICIONES
-- La recepcionista debe contar con una sesión activa y un Token JWT válido con permisos de escritura sobre el recurso Dueños.
+- El actor debe contar con una sesión activa y un Token JWT válido con rol de `Recepcionista` o `Veterinario` (el Administrador no cuenta con permisos para registrar dueños).
 - La Capa de Persistencia debe estar disponible y accesible.
 - El cliente no debe encontrarse registrado previamente con el mismo número de DNI (**RN-05**).
 

@@ -2,6 +2,7 @@
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del ciclo de vida de mascotas con reglas de negocio RN-06 (asociación de mascota a dueño registrado), RN-07 (baja lógica y preservación histórica de mascotas) y procedimiento de reasignación de titularidad con historial de propietarios.
+> Incorpora la restricción de permisos administrativos exclusivos para Veterinario y Recepcionista, excluyendo al Administrador (AMB-02).
 
 | Campo | Valor |
 | --- | --- |
@@ -20,7 +21,7 @@
 Permite al personal de la clínica veterinaria (Veterinario/a o Recepcionista) registrar una nueva mascota, consultar los datos de un paciente existente, modificar su información (nombre, especie, raza, sexo, edad/fecha de nacimiento, peso, observaciones), gestionar su desactivación mediante baja lógica, o reasignar la mascota a un nuevo dueño registrado en el sistema, vinculándola indefectiblemente a un dueño registrado y preservando en todos los casos su historia clínica completa.
 
 ### 2. PRECONDICIONES
-- El actor debe haber iniciado sesión con rol de Recepcionista o Veterinario.
+- El actor debe haber iniciado sesión con rol de Recepcionista o Veterinario (el rol Administrador no cuenta con permisos para operaciones sobre datos administrativos de mascotas).
 - Para registrar una mascota, el dueño debe encontrarse previamente registrado en el sistema (**RN-06**).
 - El sistema debe encontrarse disponible y operativo.
 

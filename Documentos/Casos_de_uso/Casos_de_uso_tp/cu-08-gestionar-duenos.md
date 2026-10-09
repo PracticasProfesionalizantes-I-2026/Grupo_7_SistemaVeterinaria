@@ -2,6 +2,7 @@
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del ciclo de vida y administración de clientes con regla de negocio RN-05 (unicidad de DNI en actualizaciones) y validaciones de integridad referencial.
+> Incorpora la restricción de permisos administrativos exclusivos para Veterinario y Recepcionista, excluyendo al Administrador (AMB-02).
 
 | Campo | Valor |
 | --- | --- |
@@ -20,7 +21,7 @@
 Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) consultar el listado de dueños registrados, buscar por nombre, apellido o DNI, visualizar el detalle de contacto y sus mascotas asociadas, actualizar su información de contacto o gestionar su baja en el sistema.
 
 ### 2. PRECONDICIONES
-- El actor debe poseer un estado de autenticación activo (Token JWT válido) con rol de `Recepcionista`, `Veterinario` o `Administrador`.
+- El actor debe poseer un estado de autenticación activo (Token JWT válido) con rol de `Recepcionista` o `Veterinario` (el Administrador no cuenta con permisos para consultar ni modificar datos administrativos de dueños).
 - Debe existir al menos un dueño registrado en la Capa de Persistencia para su consulta o modificación.
 - La base de datos debe encontrarse operativa.
 
