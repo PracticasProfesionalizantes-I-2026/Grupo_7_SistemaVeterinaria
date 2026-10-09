@@ -3,6 +3,7 @@
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del ciclo de vida de mascotas con reglas de negocio RN-06 (asociación de mascota a dueño registrado), RN-07 (baja lógica y preservación histórica de mascotas) y procedimiento de reasignación de titularidad con historial de propietarios.
 > Incorpora la restricción de permisos administrativos exclusivos para Veterinario y Recepcionista, excluyendo al Administrador (AMB-02).
+> Incorpora la especificación de respuestas HTTP para la baja lógica de mascotas: 200 OK en baja exitosa y 409 Conflict ante mascota previamente inactiva (MEJ-03).
 
 | Campo | Valor |
 | --- | --- |
@@ -50,10 +51,10 @@ Permite al personal de la clínica veterinaria (Veterinario/a o Recepcionista) r
   2. El sistema informa que no se encontró la mascota solicitada.
   3. Fin del caso de uso.
 
-* **2b. Intento de desactivar mascota ya inactiva:**
-  1. El usuario intenta desactivar una mascota que ya se encuentra en estado Inactiva, incumpliendo **RN-07**.
-  2. El sistema informa que la mascota ya se encuentra en estado inactivo y que la operación no puede realizarse.
-  3. Fin del caso de uso.
+* **2b. Intento de desactivar mascota ya inactiva (HTTP 409 Conflict):**
+  1. Si un usuario autorizado (Recepcionista o Veterinario) intenta dar de baja o desactivar una mascota que ya se encuentra en estado Inactiva, incumpliendo la regla **RN-07**.
+  2. La Capa de Negocio frena la operación y lanza la excepción `MascotaYaInactivaException`.
+  3. El Sistema rechaza la solicitud y devuelve un código **409 Conflict**, informando que la mascota ya se encuentra inactiva. No se realizan modificaciones adicionales en el sistema. Fin del caso de uso.
 
 * **A1 — Reasignación: mascota inactiva:**
   1. El usuario selecciona la opción Cambiar dueño sobre una mascota en estado Inactiva.
@@ -89,7 +90,7 @@ Permite al personal de la clínica veterinaria (Veterinario/a o Recepcionista) r
 ### 5. SUB-VARIACIONES (opcional)
 1. **Alta de mascota:** Registro de un nuevo paciente animal en estado Activa asociado a su dueño.
 2. **Modificación de datos:** Actualización de peso, raza, sexo, observaciones y otros datos biométricos de la mascota.
-3. **Baja lógica / Desactivación:** Desactivación de la mascota, cambiando su estado a Inactiva para preservar íntegramente su Historia Clínica y todos sus registros históricos (**RN-07**), sin eliminar físicamente el registro del sistema.
+3. **Baja lógica / Desactivación (HTTP 200 OK):** Cuando una mascota está en estado Activa y un usuario autorizado (Recepcionista o Veterinario) solicita su baja: el sistema solicita confirmación; una vez confirmada la operación, el sistema cambia su estado a Inactiva, conserva su Historia Clínica y todos sus registros históricos (**RN-07**) sin eliminar físicamente ningún registro, y devuelve un código **200 OK** con la confirmación de la operación y el estado actualizado de la mascota. La mascota inactiva no podrá recibir nuevos turnos ni nuevas atenciones médicas.
 4. **Reasignación de dueño (Cambiar dueño):** Cambio del propietario asociado a una mascota activa a un nuevo dueño registrado. El procedimiento completo se describe en la sección de Flujo de Reasignación a continuación.
 
 ### 5.1 FLUJO DE REASIGNACIÓN DE DUEÑO (Sub-variación 4)
@@ -115,7 +116,7 @@ Este sub-flujo se inicia cuando el usuario selecciona la opción **Cambiar dueñ
 ### 6. POSTCONDICIONES
 - **Alta:** Se registra la mascota en estado Activa junto con su Historia Clínica inicial, vinculada al dueño indicado (**RN-06**).
 - **Modificación:** Se actualizan los datos biométricos o descriptivos de la mascota. La Historia Clínica no se modifica.
-- **Baja lógica:** La mascota pasa a estado Inactiva, conservando íntegramente su Historia Clínica y registros históricos para consulta (**RN-07**), inhabilitada para nuevos turnos o atenciones.
+- **Baja lógica (HTTP 200 OK):** La mascota pasa a estado Inactiva, devolviendo confirmación de la operación y su estado actualizado; conserva su Historia Clínica y todos sus registros históricos para consulta (**RN-07**) sin eliminación física, quedando inhabilitada para recibir nuevos turnos o nuevas atenciones médicas.
 - **Reasignación:** La mascota queda asociada al nuevo dueño. La Historia Clínica permanece intacta (**RN-01**, **RN-07**). Se conserva el historial de propietarios con el registro del cambio. Los turnos futuros muestran al nuevo dueño como responsable actual. No se generan nuevas historias clínicas ni se eliminan registros existentes.
 - En ningún caso se realiza la eliminación física del registro de la mascota ni de su Historia Clínica.
 
@@ -128,10 +129,10 @@ Este sub-flujo se inicia cuando el usuario selecciona la opción **Cambiar dueñ
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
 | `201` | Created | Creación exitosa del recurso Mascota y su Historia Clínica vinculada. |
-| `200` | OK | Retorno exitoso de consulta, actualización, desactivación (baja lógica) o reasignación de la mascota. |
+| `200` | OK | Retorno exitoso de consulta, actualización, baja lógica exitosa (confirmación y estado Inactiva) o reasignación de la mascota. |
 | `400` | Bad Request | Parámetros inválidos, campos obligatorios ausentes, peso negativo o selección del mismo dueño actual en reasignación. |
 | `404` | Not Found | Dueño o mascota no encontrados en el sistema (RN-06); nuevo dueño no registrado en reasignación. |
-| `409` | Conflict | Intento de desactivar una mascota ya inactiva (RN-07); intento de reasignar una mascota inactiva. |
+| `409` | Conflict | Intento de dar de baja una mascota que ya está en estado Inactiva (RN-07); intento de reasignar una mascota inactiva. |
 | `500` | Internal Server Error | Error no controlado durante la persistencia de datos. |
 
 ### Nota: Validación vs. Verificación aplicada
@@ -152,6 +153,7 @@ El historial de propietarios es un registro de auditoría de las reasignaciones 
 | Flujo principal (alta) | `201 Created` | `CreateMascotaAsync_WithValidData_SavesMascotaAndHistoriaClinica` | `CreateMascota_WithValidData_Returns201Created` |
 | 1a. Datos faltantes o inválidos | `400 Bad Request` | — (validación DataAnnotations) | `CreateMascota_WithMissingNombre_Returns400BadRequest` |
 | 1b. Dueño inexistente | `404 Not Found` | `CreateMascotaAsync_WhenDuenoNotExists_ThrowsDuenoNotFoundException` | `CreateMascota_WhenDuenoNotExists_Returns404NotFound` |
+| Baja lógica exitosa | `200 OK` | `DesactivarMascotaAsync_WithActiveMascota_ChangesStateToInactive` | `DesactivarMascota_WithActiveMascota_Returns200OK` |
 | 2b. Desactivar ya inactiva | `409 Conflict` | `DesactivarMascotaAsync_WhenAlreadyInactive_ThrowsMascotaYaInactivaException` | `DesactivarMascota_WhenAlreadyInactive_Returns409Conflict` |
 | A1. Reasignar mascota inactiva | `409 Conflict` | `ReasignarDuenoAsync_WhenMascotaIsInactive_ThrowsMascotaInactivaException` | `ReasignarDueno_WhenMascotaIsInactive_Returns409Conflict` |
 | A2. Nuevo dueño no registrado | `404 Not Found` | `ReasignarDuenoAsync_WhenNuevoDuenoNotFound_ThrowsDuenoNotFoundException` | `ReasignarDueno_WhenNuevoDuenoNotFound_Returns404NotFound` |
