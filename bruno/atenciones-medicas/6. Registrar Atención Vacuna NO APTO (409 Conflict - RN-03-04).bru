@@ -1,0 +1,23 @@
+meta {
+  name: 6. Registrar Atención Vacuna NO APTO (409 Conflict - RN-03-04)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones-medicas
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Vacunación anual",
+    "diagnostico": "Cuadro febril e infección cutánea",
+    "tratamiento": "Antibiótico y reposo",
+    "pesoRegistrado": 28.0,
+    "esAptoVacunacion": false,
+    "vacunaAplicada": "Antirrábica Canina"
+  }
+}

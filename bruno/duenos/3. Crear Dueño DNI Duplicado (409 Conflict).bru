@@ -1,0 +1,21 @@
+meta {
+  name: 3. Crear Dueño DNI Duplicado (409 Conflict)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nombre": "Carlos Duplicado",
+    "apellido": "González",
+    "dni": "34567890",
+    "telefono": "11-9999-9999",
+    "email": "duplicado@example.com"
+  }
+}

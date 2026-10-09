@@ -1,0 +1,16 @@
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.csproj.AssemblyReference.cache
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.AssemblyInfoInputs.cache
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.AssemblyInfo.cs
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.csproj.CoreCompileInputs.cache
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.sourcelink.json
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\DataAccess.csproj.Up2Date
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\bin\Debug\net10.0\SistemaVeterinaria.DataAccess.deps.json
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\bin\Debug\net10.0\SistemaVeterinaria.DataAccess.dll
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\bin\Debug\net10.0\SistemaVeterinaria.DataAccess.pdb
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\SistemaVeterinaria.DataAccess.dll
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\refint\SistemaVeterinaria.DataAccess.dll
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\SistemaVeterinaria.DataAccess.pdb
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\obj\Debug\net10.0\ref\SistemaVeterinaria.DataAccess.dll
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\bin\Debug\net10.0\SistemaVeterinaria.Shared.dll
+C:\Users\jazvi\OneDrive\Documentos\GitHub\Grupo_7_SistemaVeterinaria\DataAccess\bin\Debug\net10.0\SistemaVeterinaria.Shared.pdb

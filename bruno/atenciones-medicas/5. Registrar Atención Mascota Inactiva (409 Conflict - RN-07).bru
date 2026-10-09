@@ -1,0 +1,22 @@
+meta {
+  name: 5. Registrar Atención Mascota Inactiva (409 Conflict - RN-07)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones-medicas
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Intento de atención médica",
+    "diagnostico": "Revisión general",
+    "tratamiento": "Ninguno",
+    "pesoRegistrado": 32.0,
+    "esAptoVacunacion": false
+  }
+}

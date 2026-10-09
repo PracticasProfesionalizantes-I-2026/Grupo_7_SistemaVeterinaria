@@ -1,0 +1,22 @@
+meta {
+  name: 2. Crear Dueño Exitoso (201)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nombre": "Esteban",
+    "apellido": "Quito",
+    "dni": "40112233",
+    "telefono": "11-4455-6677",
+    "email": "esteban.quito@example.com",
+    "direccion": "Calle Sol 123"
+  }
+}

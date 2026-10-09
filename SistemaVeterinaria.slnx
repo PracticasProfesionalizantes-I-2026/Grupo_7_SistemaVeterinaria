@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/API.Tests/API.Tests.csproj" />
+    <Project Path="tests/BusinessLogic.Tests/BusinessLogic.Tests.csproj" />
+  </Folder>
+  <Project Path="API/API.csproj" />
+  <Project Path="BusinessLogic/BusinessLogic.csproj" />
+  <Project Path="DataAccess/DataAccess.csproj" />
+  <Project Path="Shared/Shared.csproj" />
+</Solution>

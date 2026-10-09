@@ -1,0 +1,24 @@
+meta {
+  name: 4. Registrar Atención con Vacuna APTO (201 Created)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones-medicas
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Control de rutina y vacunación",
+    "diagnostico": "Paciente clínicamente sano",
+    "tratamiento": "Se aplica vacuna anual",
+    "pesoRegistrado": 28.5,
+    "esAptoVacunacion": true,
+    "vacunaAplicada": "Antirrábica Canina",
+    "observaciones": "Sin incidencias ni efectos adversos inmediatos."
+  }
+}

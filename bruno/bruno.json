@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Sistema Veterinaria API",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

@@ -1,0 +1,11 @@
+meta {
+  name: 2. Listar Solo Mascotas Activas
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/mascotas?soloActivas=true
+  body: none
+  auth: none
+}

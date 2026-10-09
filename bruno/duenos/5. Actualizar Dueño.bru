@@ -1,0 +1,21 @@
+meta {
+  name: 5. Actualizar Dueño
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/api/duenos/00000000-0000-0000-0000-000000000000
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nombre": "Carlos Alberto",
+    "apellido": "González",
+    "telefono": "11-4567-9999",
+    "email": "carlos.nuevo@example.com",
+    "direccion": "Av. Corrientes 4500"
+  }
+}
