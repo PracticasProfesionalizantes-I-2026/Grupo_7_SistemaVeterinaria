@@ -1,0 +1,15 @@
+meta {
+  name: 14. Desbloquear Cuenta Rol No Autorizado (403 Forbidden)
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/{{usuarioBloqueadoId}}/desbloquear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{nonAdminToken}}
+}

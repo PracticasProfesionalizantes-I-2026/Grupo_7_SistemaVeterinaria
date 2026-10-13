@@ -95,4 +95,21 @@ public class UsuarioRepository : IUsuarioRepository
         _context.Usuarios.Update(usuario);
         await _context.SaveChangesAsync();
     }
+
+    public async Task DesbloquearConAuditoriaAsync(Usuario usuario, RegistroOperacionUsuario auditoria)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            _context.Usuarios.Update(usuario);
+            await _context.RegistrosOperacionesUsuarios.AddAsync(auditoria);
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
 }

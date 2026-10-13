@@ -1,0 +1,15 @@
+meta {
+  name: 12. Desbloquear Cuenta Inactiva (Admin - 400 Bad Request)
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/{{usuarioInactivoId}}/desbloquear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

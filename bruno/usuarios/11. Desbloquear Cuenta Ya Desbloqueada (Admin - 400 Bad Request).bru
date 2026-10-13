@@ -1,0 +1,15 @@
+meta {
+  name: 11. Desbloquear Cuenta Ya Desbloqueada (Admin - 400 Bad Request)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/{{usuarioActivoId}}/desbloquear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

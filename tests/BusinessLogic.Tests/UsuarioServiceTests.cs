@@ -193,4 +193,150 @@ public class UsuarioServiceTests
         // Assert
         _usuarioRepoMock.Verify(r => r.GetAllAsync("ana", "Recepcionista", "Activo"), Times.Once);
     }
+
+    [Fact]
+    public async Task UnlockAccountAsync_WithLockedUser_SetsActiveAndResetsCounter()
+    {
+        // Arrange (CU-13 Flujo principal)
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var adminUsername = "admin";
+        const string originalHash = "SecurePasswordHash123!";
+
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.bloqueado",
+            Email = "bloqueado@patitas.com",
+            PasswordHash = originalHash,
+            Rol = "Recepcionista",
+            Activo = true,
+            Bloqueado = true,
+            IntentosFallidos = 5,
+            RequiereCambioPassword = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        _usuarioRepoMock.Setup(r => r.DesbloquearConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _service.DesbloquearCuentaAsync(userId, adminId, adminUsername);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Activo", result.Estado);
+        Assert.False(result.Bloqueado);
+        Assert.Equal(0, result.IntentosFallidos);
+        Assert.False(result.PuedeDesbloquear);
+        Assert.True(result.PuedeRestablecerPassword);
+
+        // Verificación estricta: PasswordHash y RequiereCambioPassword NUNCA deben modificarse
+        Assert.Equal(originalHash, usuario.PasswordHash);
+        Assert.False(usuario.RequiereCambioPassword);
+
+        // Verificación de auditoría y persistencia atómica
+        _usuarioRepoMock.Verify(r => r.DesbloquearConAuditoriaAsync(
+            It.Is<Usuario>(u => !u.Bloqueado && u.IntentosFallidos == 0 && u.PasswordHash == originalHash),
+            It.Is<RegistroOperacionUsuario>(reg =>
+                reg.UsuarioId == userId &&
+                reg.UsernameAfectado == "user.bloqueado" &&
+                reg.TipoOperacion == "Desbloqueo" &&
+                reg.AdministradorId == adminId &&
+                reg.AdministradorUsername == adminUsername)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UnlockAccountAsync_WithNonLockedUser_ThrowsInvalidOperationException()
+    {
+        // Arrange (CU-13 Flujo A1: Cuenta no bloqueada)
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.activo",
+            Activo = true,
+            Bloqueado = false,
+            IntentosFallidos = 0
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.DesbloquearCuentaAsync(userId, adminId, "admin"));
+
+        Assert.Equal("La cuenta no se encuentra bloqueada.", ex.Message);
+        _usuarioRepoMock.Verify(r => r.DesbloquearConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UnlockAccountAsync_WithInactiveUser_ThrowsUsuarioInactivoException()
+    {
+        // Arrange (Condición: Cuenta inactiva no debe habilitarse mediante desbloqueo)
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.inactivo",
+            Activo = false,
+            Bloqueado = true,
+            IntentosFallidos = 5
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UsuarioInactivoException>(() =>
+            _service.DesbloquearCuentaAsync(userId, adminId, "admin"));
+
+        _usuarioRepoMock.Verify(r => r.DesbloquearConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UnlockAccountAsync_WithNonExistentUser_ThrowsUsuarioNotFoundException()
+    {
+        // Arrange
+        var nonExistentId = Guid.NewGuid();
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(nonExistentId))
+            .ReturnsAsync((Usuario?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UsuarioNotFoundException>(() =>
+            _service.DesbloquearCuentaAsync(nonExistentId, Guid.NewGuid(), "admin"));
+    }
+
+    [Fact]
+    public async Task UnlockAccountAsync_OnDatabaseFailure_ThrowsPersistenceException()
+    {
+        // Arrange (CU-13 Flujo A3)
+        var userId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.bloqueado",
+            Activo = true,
+            Bloqueado = true,
+            IntentosFallidos = 5
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        _usuarioRepoMock.Setup(r => r.DesbloquearConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()))
+            .ThrowsAsync(new InvalidOperationException("Falla en la base de datos al asentar la transacción"));
+
+        // Act & Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.DesbloquearCuentaAsync(userId, Guid.NewGuid(), "admin"));
+    }
 }

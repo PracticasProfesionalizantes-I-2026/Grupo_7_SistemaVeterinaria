@@ -39,6 +39,47 @@ public class UsuarioService : IUsuarioService
         return MapToResponseDTO(usuario);
     }
 
+    public async Task<UsuarioResponseDTO> DesbloquearCuentaAsync(Guid id, Guid administradorId, string administradorUsername)
+    {
+        var usuario = await _usuarioRepository.GetByIdTrackedAsync(id);
+        if (usuario == null)
+        {
+            throw new UsuarioNotFoundException(id);
+        }
+
+        if (!usuario.Activo)
+        {
+            throw new UsuarioInactivoException("La cuenta de usuario se encuentra inactiva y no puede ser desbloqueada.");
+        }
+
+        if (!usuario.Bloqueado)
+        {
+            throw new InvalidOperationException("La cuenta no se encuentra bloqueada.");
+        }
+
+        // Restablecer estado sin modificar PasswordHash ni RequiereCambioPassword
+        usuario.Bloqueado = false;
+        usuario.IntentosFallidos = 0;
+
+        // Registrar auditoría de la operación
+        var registroAuditoria = new RegistroOperacionUsuario
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuario.Id,
+            UsernameAfectado = usuario.Username,
+            TipoOperacion = "Desbloqueo",
+            AdministradorId = administradorId,
+            AdministradorUsername = administradorUsername,
+            FechaOperacion = DateTime.UtcNow,
+            Detalles = "Desbloqueo administrativo de cuenta y restablecimiento de contador de intentos fallidos a cero."
+        };
+
+        // Persistir usuario y auditoría atómicamente en una misma transacción
+        await _usuarioRepository.DesbloquearConAuditoriaAsync(usuario, registroAuditoria);
+
+        return MapToResponseDTO(usuario);
+    }
+
     private static UsuarioResponseDTO MapToResponseDTO(Usuario usuario)
     {
         // Precedencia de estados: Priorizar Inactivo cuando Activo == false

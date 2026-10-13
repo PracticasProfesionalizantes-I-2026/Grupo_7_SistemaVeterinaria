@@ -1,0 +1,11 @@
+meta {
+  name: 15. Desbloquear Cuenta Sin Token (401 Unauthorized)
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/{{usuarioBloqueadoId}}/desbloquear
+  body: none
+  auth: none
+}

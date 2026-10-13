@@ -1,0 +1,15 @@
+meta {
+  name: 13. Desbloquear Cuenta Inexistente (Admin - 404 Not Found)
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/00000000-0000-0000-0000-000000000000/desbloquear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

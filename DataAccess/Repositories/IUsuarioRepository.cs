@@ -11,4 +11,5 @@ public interface IUsuarioRepository
     Task<Usuario?> GetByUsernameOrEmailTrackedAsync(string usernameOrEmail);
     Task<Usuario> CreateAsync(Usuario usuario);
     Task UpdateAsync(Usuario usuario);
+    Task DesbloquearConAuditoriaAsync(Usuario usuario, RegistroOperacionUsuario auditoria);
 }

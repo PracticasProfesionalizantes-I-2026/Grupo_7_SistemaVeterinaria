@@ -205,4 +205,163 @@ public class UsuariosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         Assert.NotEmpty(users);
         Assert.All(users, u => Assert.Equal("Bloqueado", u.Estado));
     }
+
+    [Fact]
+    public async Task UnlockAccount_WithLockedUser_Returns200OK()
+    {
+        // Arrange (CU-13 Flujo principal)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        // Obtenemos el usuario bloqueado
+        var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/usuarios?username=user.bloqueado");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var listRes = await _client.SendAsync(listReq);
+        var users = await listRes.Content.ReadFromJsonAsync<List<UsuarioResponseDTO>>();
+        Assert.NotNull(users);
+        var blockedUser = Assert.Single(users);
+
+        // Act: Enviar POST /api/usuarios/{id}/desbloquear
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{blockedUser.Id}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, unlockRes.StatusCode);
+        var result = await unlockRes.Content.ReadFromJsonAsync<UsuarioResponseDTO>();
+        Assert.NotNull(result);
+        Assert.Equal(blockedUser.Id, result.Id);
+        Assert.Equal("Activo", result.Estado);
+        Assert.False(result.Bloqueado);
+        Assert.Equal(0, result.IntentosFallidos);
+        Assert.False(result.PuedeDesbloquear);
+        Assert.True(result.PuedeRestablecerPassword);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_WithActiveUser_Returns400BadRequest()
+    {
+        // Arrange (CU-13 Flujo A1: Cuenta activa/no bloqueada)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/usuarios?username=vet.carlos");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var listRes = await _client.SendAsync(listReq);
+        var users = await listRes.Content.ReadFromJsonAsync<List<UsuarioResponseDTO>>();
+        Assert.NotNull(users);
+        var activeUser = Assert.Single(users);
+
+        // Act
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{activeUser.Id}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, unlockRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_WithInactiveUser_Returns400BadRequest()
+    {
+        // Arrange (Condición: Cuenta inactiva no debe habilitarse con desbloqueo)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/usuarios?username=user.inactivo");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var listRes = await _client.SendAsync(listReq);
+        var users = await listRes.Content.ReadFromJsonAsync<List<UsuarioResponseDTO>>();
+        Assert.NotNull(users);
+        var inactiveUser = Assert.Single(users);
+
+        // Act
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{inactiveUser.Id}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, unlockRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_WithNonAdminRole_Returns403Forbidden()
+    {
+        // Arrange (CU-13 Flujo A4: Rol insuficiente)
+        var vetToken = await ObetenerTokenAsync("vet.carlos", "Vet1234!");
+        var dummyId = Guid.NewGuid();
+
+        // Act
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{dummyId}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", vetToken);
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, unlockRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_WithoutToken_Returns401Unauthorized()
+    {
+        // Arrange
+        var dummyId = Guid.NewGuid();
+
+        // Act
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{dummyId}/desbloquear");
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, unlockRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_WithNonExistentUser_Returns404NotFound()
+    {
+        // Arrange
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+        var nonExistentId = Guid.NewGuid();
+
+        // Act
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{nonExistentId}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var unlockRes = await _client.SendAsync(unlockReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, unlockRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnlockAccount_VerifiesPasswordRemainsUnchangedAndCanLogin()
+    {
+        // Arrange: Unlocks user and verifies login succeeds with original password
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var listReq = new HttpRequestMessage(HttpMethod.Get, "/api/usuarios?username=user.bloqueado");
+        listReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var listRes = await _client.SendAsync(listReq);
+        var users = await listRes.Content.ReadFromJsonAsync<List<UsuarioResponseDTO>>();
+        Assert.NotNull(users);
+        var blockedUser = Assert.Single(users);
+
+        // Desbloquear si está bloqueado
+        if (blockedUser.Bloqueado)
+        {
+            var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{blockedUser.Id}/desbloquear");
+            unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            var unlockRes = await _client.SendAsync(unlockReq);
+            Assert.Equal(HttpStatusCode.OK, unlockRes.StatusCode);
+        }
+
+        // Act: Intentar login con la contraseña original de user.bloqueado
+        var loginReq = new LoginRequestDTO
+        {
+            UsuarioOEmail = "user.bloqueado",
+            Password = "User1234!"
+        };
+        var loginRes = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
+
+        // Assert: Login exitoso, probando que PasswordHash no fue alterado
+        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+        var loginData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(loginData);
+        Assert.False(string.IsNullOrWhiteSpace(loginData.Token));
+        Assert.Equal("user.bloqueado", loginData.Username);
+    }
 }

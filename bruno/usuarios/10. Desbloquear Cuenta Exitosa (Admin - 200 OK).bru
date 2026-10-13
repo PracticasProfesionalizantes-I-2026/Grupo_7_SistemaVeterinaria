@@ -1,0 +1,15 @@
+meta {
+  name: 10. Desbloquear Cuenta Exitosa (Admin - 200 OK)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/usuarios/{{usuarioBloqueadoId}}/desbloquear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
