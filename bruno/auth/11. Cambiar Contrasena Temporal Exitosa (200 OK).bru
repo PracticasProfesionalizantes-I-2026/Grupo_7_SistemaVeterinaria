@@ -1,0 +1,20 @@
+meta {
+  name: 11. Cambiar Contrasena Temporal Exitosa (200 OK)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/auth/cambiar-password-temporal
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "usuarioOEmail": "user.temporal",
+    "passwordActual": "Temporal1234!",
+    "nuevaPassword": "NuevaPasswordSegura2026!",
+    "confirmacionPassword": "NuevaPasswordSegura2026!"
+  }
+}

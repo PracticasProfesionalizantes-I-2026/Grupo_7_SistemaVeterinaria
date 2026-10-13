@@ -1,9 +1,12 @@
+using System.Text;
 using BusinessLogic.Interfaces;
 using BusinessLogic.Services;
 using DataAccess.Context;
 using DataAccess.Repositories;
 using DataAccess.Seeding;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,11 +26,38 @@ builder.Services.AddDbContext<VeterinariaDbContext>(options =>
 builder.Services.AddScoped<IDuenoRepository, DuenoRepository>();
 builder.Services.AddScoped<IMascotaRepository, MascotaRepository>();
 builder.Services.AddScoped<IAtencionMedicaRepository, AtencionMedicaRepository>();
+builder.Services.AddScoped<IUsuarioRepository, UsuarioRepository>();
 
 // 2. Servicios (BusinessLogic)
 builder.Services.AddScoped<IDuenoService, DuenoService>();
 builder.Services.AddScoped<IMascotaService, MascotaService>();
 builder.Services.AddScoped<IAtencionMedicaService, AtencionMedicaService>();
+builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Configuración de Autenticación con JWT Bearer
+var secretKey = builder.Configuration["JwtSettings:SecretKey"] 
+    ?? "VeterinariaPatitasDesarrolloSeguraSecretKey2026!#JWTAuthorization";
+var issuer = builder.Configuration["JwtSettings:Issuer"] ?? "VeterinariaPatitasAPI";
+var audience = builder.Configuration["JwtSettings:Audience"] ?? "VeterinariaPatitasClients";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = issuer,
+            ValidateAudience = true,
+            ValidAudience = audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // Configuración de OpenAPI y Scalar
 builder.Services.AddOpenApi();
@@ -49,6 +79,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 

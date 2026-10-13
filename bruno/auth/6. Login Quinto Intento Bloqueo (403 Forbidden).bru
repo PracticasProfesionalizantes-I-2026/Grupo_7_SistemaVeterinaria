@@ -1,0 +1,18 @@
+meta {
+  name: 6. Login Quinto Intento Bloqueo (403 Forbidden)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "usuarioOEmail": "user.bloqueado",
+    "password": "PasswordIncorrecta"
+  }
+}

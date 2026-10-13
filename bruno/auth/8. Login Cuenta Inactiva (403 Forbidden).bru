@@ -1,0 +1,18 @@
+meta {
+  name: 8. Login Cuenta Inactiva (403 Forbidden)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "usuarioOEmail": "user.inactivo",
+    "password": "User1234!"
+  }
+}

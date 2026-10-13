@@ -12,10 +12,28 @@ public class VeterinariaDbContext : DbContext
     public DbSet<Dueno> Duenos => Set<Dueno>();
     public DbSet<Mascota> Mascotas => Set<Mascota>();
     public DbSet<AtencionMedica> AtencionesMedicas => Set<AtencionMedica>();
+    public DbSet<Usuario> Usuarios => Set<Usuario>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Configuración de Usuario
+        modelBuilder.Entity<Usuario>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+            entity.HasIndex(u => u.Username).IsUnique();
+            entity.HasIndex(u => u.Email).IsUnique();
+            entity.Property(u => u.Username).IsRequired().HasMaxLength(50);
+            entity.Property(u => u.Email).IsRequired().HasMaxLength(150);
+            entity.Property(u => u.PasswordHash).IsRequired().HasMaxLength(255);
+            entity.Property(u => u.Rol).IsRequired().HasMaxLength(50);
+            entity.Property(u => u.Activo).IsRequired().HasDefaultValue(true);
+            entity.Property(u => u.Bloqueado).IsRequired().HasDefaultValue(false);
+            entity.Property(u => u.IntentosFallidos).IsRequired().HasDefaultValue(0);
+            entity.Property(u => u.RequiereCambioPassword).IsRequired().HasDefaultValue(false);
+            entity.Property(u => u.FechaCreacion).IsRequired();
+        });
 
         // Configuración de Dueno
         modelBuilder.Entity<Dueno>(entity =>

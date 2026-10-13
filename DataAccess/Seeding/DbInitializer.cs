@@ -1,6 +1,7 @@
 using DataAccess.Context;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
+using Shared.Security;
 
 namespace DataAccess.Seeding;
 
@@ -11,7 +12,98 @@ public static class DbInitializer
         // Aplica migraciones pendientes o crea la base de datos
         await context.Database.MigrateAsync();
 
-        // Verificar si ya existen datos sembrados
+        // Sembrar Usuarios de prueba si la tabla está vacía
+        if (!await context.Usuarios.AnyAsync())
+        {
+            var admin = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "admin",
+                Email = "admin@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Admin1234!"),
+                Rol = "Administrador",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            var veterinario = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "vet.carlos",
+                Email = "carlos.veterinario@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Vet1234!"),
+                Rol = "Veterinario",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            var recepcionista = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "recep.ana",
+                Email = "ana.recepcion@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Recep1234!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            var bloqueado = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "user.bloqueado",
+                Email = "bloqueado@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("User1234!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = true,
+                IntentosFallidos = 5,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            var inactivo = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "user.inactivo",
+                Email = "inactivo@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("User1234!"),
+                Rol = "Veterinario",
+                Activo = false,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            var temporal = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "user.temporal",
+                Email = "temporal@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Temporal1234!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = true,
+                FechaCreacion = DateTime.UtcNow
+            };
+
+            await context.Usuarios.AddRangeAsync(admin, veterinario, recepcionista, bloqueado, inactivo, temporal);
+            await context.SaveChangesAsync();
+        }
+
+        // Verificar si ya existen datos clínicos y de dueños
         if (await context.Duenos.AnyAsync())
         {
             return; // Ya fue inicializada

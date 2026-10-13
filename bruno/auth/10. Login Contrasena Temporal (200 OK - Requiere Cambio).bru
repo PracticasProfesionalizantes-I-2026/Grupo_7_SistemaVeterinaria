@@ -1,0 +1,18 @@
+meta {
+  name: 10. Login Contrasena Temporal (200 OK - Requiere Cambio)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "usuarioOEmail": "user.temporal",
+    "password": "Temporal1234!"
+  }
+}
