@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using BusinessLogic.Interfaces;
 using DataAccess.Entities;
 using DataAccess.Repositories;
@@ -9,10 +10,14 @@ namespace BusinessLogic.Services;
 public class UsuarioService : IUsuarioService
 {
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly IPasswordHasherService _passwordHasher;
 
-    public UsuarioService(IUsuarioRepository usuarioRepository)
+    public UsuarioService(
+        IUsuarioRepository usuarioRepository,
+        IPasswordHasherService passwordHasher)
     {
         _usuarioRepository = usuarioRepository;
+        _passwordHasher = passwordHasher;
     }
 
     public async Task<IEnumerable<UsuarioResponseDTO>> GetAllAsync(string? username = null, string? rol = null, string? estado = null)
@@ -80,6 +85,91 @@ public class UsuarioService : IUsuarioService
         return MapToResponseDTO(usuario);
     }
 
+    public async Task<RestablecerPasswordResponseDTO> RestablecerPasswordAsync(Guid id, Guid administradorId, string administradorUsername)
+    {
+        var usuario = await _usuarioRepository.GetByIdTrackedAsync(id);
+        if (usuario == null)
+        {
+            throw new UsuarioNotFoundException(id);
+        }
+
+        // Opción A: Cuentas inactivas no admiten restablecimiento de contraseña
+        if (!usuario.Activo)
+        {
+            throw new UsuarioInactivoException("La cuenta de usuario se encuentra inactiva y no puede recibir un restablecimiento de contraseña.");
+        }
+
+        // Generar contraseña temporal segura que cumpla con la política de contraseñas
+        var passwordTemporal = GenerarPasswordTemporalSegura();
+
+        // Almacenar únicamente el hash de la contraseña temporal y exigir cambio obligatorio
+        usuario.PasswordHash = _passwordHasher.HashPassword(passwordTemporal);
+        usuario.RequiereCambioPassword = true;
+
+        // NOTA: No modificar usuario.Bloqueado ni usuario.IntentosFallidos (CU-14)
+
+        // Registrar auditoría de la operación SIN incluir la contraseña temporal
+        var registroAuditoria = new RegistroOperacionUsuario
+        {
+            Id = Guid.NewGuid(),
+            UsuarioId = usuario.Id,
+            UsernameAfectado = usuario.Username,
+            TipoOperacion = "Restablecimiento de contraseña",
+            AdministradorId = administradorId,
+            AdministradorUsername = administradorUsername,
+            FechaOperacion = DateTime.UtcNow,
+            Detalles = "Restablecimiento administrativo de contraseña con generación de contraseña temporal y cambio obligatorio."
+        };
+
+        // Persistir usuario y auditoría atómicamente en una misma transacción
+        await _usuarioRepository.RestablecerPasswordConAuditoriaAsync(usuario, registroAuditoria);
+
+        var mensaje = usuario.Bloqueado
+            ? "Contraseña restablecida exitosamente. La cuenta permanece bloqueada y requerirá ser desbloqueada antes de que el usuario pueda ingresar."
+            : "Contraseña restablecida exitosamente. El usuario deberá cambiarla obligatoriamente en su próximo inicio de sesión.";
+
+        return new RestablecerPasswordResponseDTO
+        {
+            UsuarioId = usuario.Id,
+            Username = usuario.Username,
+            PasswordTemporal = passwordTemporal,
+            RequiereCambioPassword = true,
+            Bloqueado = usuario.Bloqueado,
+            Mensaje = mensaje,
+            Advertencia = "Comunique la contraseña temporal al usuario por un medio seguro. Esta contraseña no se volverá a mostrar ni se almacena en texto plano."
+        };
+    }
+
+    private static string GenerarPasswordTemporalSegura()
+    {
+        const string mayusculas = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        const string minusculas = "abcdefghijkmnopqrstuvwxyz";
+        const string numeros = "23456789";
+        const string especiales = "!@#$%&*";
+        const string todos = mayusculas + minusculas + numeros + especiales;
+
+        var chars = new List<char>
+        {
+            mayusculas[RandomNumberGenerator.GetInt32(mayusculas.Length)],
+            minusculas[RandomNumberGenerator.GetInt32(minusculas.Length)],
+            numeros[RandomNumberGenerator.GetInt32(numeros.Length)],
+            especiales[RandomNumberGenerator.GetInt32(especiales.Length)]
+        };
+
+        for (int i = chars.Count; i < 10; i++)
+        {
+            chars.Add(todos[RandomNumberGenerator.GetInt32(todos.Length)]);
+        }
+
+        for (int i = chars.Count - 1; i > 0; i--)
+        {
+            int j = RandomNumberGenerator.GetInt32(i + 1);
+            (chars[i], chars[j]) = (chars[j], chars[i]);
+        }
+
+        return new string(chars.ToArray());
+    }
+
     private static UsuarioResponseDTO MapToResponseDTO(Usuario usuario)
     {
         // Precedencia de estados: Priorizar Inactivo cuando Activo == false
@@ -111,7 +201,7 @@ public class UsuarioService : IUsuarioService
             UltimoAcceso = usuario.UltimoAcceso,
             FechaCreacion = usuario.FechaCreacion,
             PuedeDesbloquear = usuario.Activo && usuario.Bloqueado,
-            PuedeRestablecerPassword = true
+            PuedeRestablecerPassword = usuario.Activo
         };
     }
 }

@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using DataAccess.Context;
+using DataAccess.Entities;
+using DataAccess.Seeding;
+using Microsoft.Extensions.DependencyInjection;
 using Shared.DTOs.Auth;
 using Shared.DTOs.Usuario;
+using Shared.Security;
 using Xunit;
 
 namespace API.Tests;
@@ -364,4 +369,228 @@ public class UsuariosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         Assert.False(string.IsNullOrWhiteSpace(loginData.Token));
         Assert.Equal("user.bloqueado", loginData.Username);
     }
+
+    #region CU-14: Restablecer Contraseña
+
+    [Fact]
+    public async Task ResetPassword_WithValidUser_Returns200OK_AndEnforcesForcedChangeUponLogin()
+    {
+        // Arrange (CU-14 Flujo principal e integración con CU-01 A8)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var targetUserId = Guid.NewGuid();
+        var targetUsername = "user.reset." + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Usuarios.Add(new Usuario
+            {
+                Id = targetUserId,
+                Username = targetUsername,
+                Email = $"{targetUsername}@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Initial1234!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Administrador restablece la contraseña
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{targetUserId}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert: 200 OK con contraseña temporal generada
+        Assert.Equal(HttpStatusCode.OK, resetRes.StatusCode);
+        var resetData = await resetRes.Content.ReadFromJsonAsync<RestablecerPasswordResponseDTO>();
+        Assert.NotNull(resetData);
+        Assert.Equal(targetUserId, resetData.UsuarioId);
+        Assert.Equal(targetUsername, resetData.Username);
+        Assert.False(string.IsNullOrWhiteSpace(resetData.PasswordTemporal));
+        Assert.True(resetData.RequiereCambioPassword);
+        Assert.False(resetData.Bloqueado);
+
+        // Verificar flujo CU-01 A8: Intentar login con la contraseña temporal
+        var loginTemporalReq = new LoginRequestDTO
+        {
+            UsuarioOEmail = targetUsername,
+            Password = resetData.PasswordTemporal
+        };
+        var loginTemporalRes = await _client.PostAsJsonAsync("/api/auth/login", loginTemporalReq);
+        Assert.Equal(HttpStatusCode.OK, loginTemporalRes.StatusCode);
+
+        var loginTemporalData = await loginTemporalRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(loginTemporalData);
+        Assert.True(loginTemporalData.RequiereCambioPassword);
+        Assert.Null(loginTemporalData.Token); // No entrega token hasta cambiarla
+
+        // Completar cambio obligatorio de contraseña
+        var changeReq = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = targetUsername,
+            PasswordActual = resetData.PasswordTemporal,
+            NuevaPassword = "NuevaPasswordSegura2026!",
+            ConfirmacionPassword = "NuevaPasswordSegura2026!"
+        };
+        var changeRes = await _client.PostAsJsonAsync("/api/auth/cambiar-password-temporal", changeReq);
+        Assert.Equal(HttpStatusCode.OK, changeRes.StatusCode);
+
+        var changeData = await changeRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(changeData);
+        Assert.False(string.IsNullOrWhiteSpace(changeData.Token));
+        Assert.False(changeData.RequiereCambioPassword);
+
+        // Verificar que ahora puede autenticarse normalmente con la nueva contraseña
+        var normalLoginReq = new LoginRequestDTO
+        {
+            UsuarioOEmail = targetUsername,
+            Password = "NuevaPasswordSegura2026!"
+        };
+        var normalLoginRes = await _client.PostAsJsonAsync("/api/auth/login", normalLoginReq);
+        Assert.Equal(HttpStatusCode.OK, normalLoginRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithLockedUser_Returns200OK_AccountRemainsLocked()
+    {
+        // Arrange (CU-14 Flujo alternativo A4: Usuario bloqueado)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var lockedUserId = Guid.NewGuid();
+        var lockedUsername = "user.locked." + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Usuarios.Add(new Usuario
+            {
+                Id = lockedUserId,
+                Username = lockedUsername,
+                Email = $"{lockedUsername}@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Locked1234!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = true,
+                IntentosFallidos = 5,
+                RequiereCambioPassword = false
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Restablecer contraseña a usuario bloqueado
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{lockedUserId}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert: 200 OK informando restablecimiento y que la cuenta continúa bloqueada
+        Assert.Equal(HttpStatusCode.OK, resetRes.StatusCode);
+        var resetData = await resetRes.Content.ReadFromJsonAsync<RestablecerPasswordResponseDTO>();
+        Assert.NotNull(resetData);
+        Assert.True(resetData.Bloqueado);
+        Assert.True(resetData.RequiereCambioPassword);
+        Assert.Contains("permanece bloqueada", resetData.Mensaje);
+
+        // Verificar que en la base de datos la cuenta sigue bloqueada
+        var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/usuarios/{lockedUserId}");
+        getReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var getRes = await _client.SendAsync(getReq);
+        var userCheck = await getRes.Content.ReadFromJsonAsync<UsuarioResponseDTO>();
+        Assert.NotNull(userCheck);
+        Assert.True(userCheck.Bloqueado);
+        Assert.Equal("Bloqueado", userCheck.Estado);
+
+        // Verificar que el usuario no puede iniciar sesión (CU-01 A3: 403 Forbidden por usuario bloqueado)
+        var loginAttempt = new LoginRequestDTO
+        {
+            UsuarioOEmail = lockedUsername,
+            Password = resetData.PasswordTemporal
+        };
+        var loginRes = await _client.PostAsJsonAsync("/api/auth/login", loginAttempt);
+        Assert.Equal(HttpStatusCode.Forbidden, loginRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithInactiveUser_Returns400BadRequest()
+    {
+        // Arrange (Opción A: Cuenta inactiva no admite restablecimiento)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var inactiveUserId = Guid.NewGuid();
+        var inactiveUsername = "user.inact." + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Usuarios.Add(new Usuario
+            {
+                Id = inactiveUserId,
+                Username = inactiveUsername,
+                Email = $"{inactiveUsername}@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("Inactive1234!"),
+                Rol = "Veterinario",
+                Activo = false,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{inactiveUserId}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, resetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithNonAdminRole_Returns403Forbidden()
+    {
+        // Arrange (CU-14 Flujo alternativo A3)
+        var vetToken = await ObetenerTokenAsync("vet.carlos", "Vet1234!");
+
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{Guid.NewGuid()}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", vetToken);
+
+        // Act
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, resetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithoutToken_Returns401Unauthorized()
+    {
+        // Arrange
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{Guid.NewGuid()}/restablecer-password");
+
+        // Act
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, resetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithNonExistentUser_Returns404NotFound()
+    {
+        // Arrange
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+        var nonExistentId = Guid.NewGuid();
+
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{nonExistentId}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        // Act
+        var resetRes = await _client.SendAsync(resetReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, resetRes.StatusCode);
+    }
+
+    #endregion
 }

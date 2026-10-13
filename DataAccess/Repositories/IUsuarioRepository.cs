@@ -12,4 +12,5 @@ public interface IUsuarioRepository
     Task<Usuario> CreateAsync(Usuario usuario);
     Task UpdateAsync(Usuario usuario);
     Task DesbloquearConAuditoriaAsync(Usuario usuario, RegistroOperacionUsuario auditoria);
+    Task RestablecerPasswordConAuditoriaAsync(Usuario usuario, RegistroOperacionUsuario auditoria);
 }

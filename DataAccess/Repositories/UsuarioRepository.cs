@@ -112,4 +112,21 @@ public class UsuarioRepository : IUsuarioRepository
             throw;
         }
     }
+
+    public async Task RestablecerPasswordConAuditoriaAsync(Usuario usuario, RegistroOperacionUsuario auditoria)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            _context.Usuarios.Update(usuario);
+            await _context.RegistrosOperacionesUsuarios.AddAsync(auditoria);
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
 }

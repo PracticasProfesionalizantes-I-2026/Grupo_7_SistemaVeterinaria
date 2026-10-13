@@ -1,3 +1,4 @@
+using BusinessLogic.Interfaces;
 using BusinessLogic.Services;
 using DataAccess.Entities;
 using DataAccess.Repositories;
@@ -10,12 +11,17 @@ namespace BusinessLogic.Tests;
 public class UsuarioServiceTests
 {
     private readonly Mock<IUsuarioRepository> _usuarioRepoMock;
+    private readonly Mock<IPasswordHasherService> _passwordHasherMock;
     private readonly UsuarioService _service;
 
     public UsuarioServiceTests()
     {
         _usuarioRepoMock = new Mock<IUsuarioRepository>();
-        _service = new UsuarioService(_usuarioRepoMock.Object);
+        _passwordHasherMock = new Mock<IPasswordHasherService>();
+        _passwordHasherMock.Setup(h => h.HashPassword(It.IsAny<string>()))
+            .Returns<string>(p => $"HASHED_{p}");
+
+        _service = new UsuarioService(_usuarioRepoMock.Object, _passwordHasherMock.Object);
     }
 
     [Fact]
@@ -80,7 +86,7 @@ public class UsuarioServiceTests
         var inactivoDto = result.First(u => u.Username == "user.inactivo");
         Assert.Equal("Inactivo", inactivoDto.Estado);
         Assert.False(inactivoDto.PuedeDesbloquear);
-        Assert.True(inactivoDto.PuedeRestablecerPassword);
+        Assert.False(inactivoDto.PuedeRestablecerPassword);
     }
 
     [Fact]
@@ -177,7 +183,7 @@ public class UsuarioServiceTests
         // Assert
         Assert.Equal("Inactivo", result.Estado);
         Assert.False(result.PuedeDesbloquear); // No se puede desbloquear una cuenta inactiva
-        Assert.True(result.PuedeRestablecerPassword);
+        Assert.False(result.PuedeRestablecerPassword);
     }
 
     [Fact]
@@ -339,4 +345,174 @@ public class UsuarioServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _service.DesbloquearCuentaAsync(userId, Guid.NewGuid(), "admin"));
     }
+
+    #region CU-14: Restablecer Contraseña
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithValidActiveUser_GeneratesTempPasswordSetsFlagAndLogsAudit()
+    {
+        // Arrange (CU-14 Flujo principal)
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "recepcionista.test",
+            PasswordHash = "OLD_HASH",
+            Activo = true,
+            Bloqueado = false,
+            IntentosFallidos = 0,
+            RequiereCambioPassword = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        RegistroOperacionUsuario? auditoriaCapturada = null;
+        Usuario? usuarioCapturado = null;
+
+        _usuarioRepoMock.Setup(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()))
+            .Callback<Usuario, RegistroOperacionUsuario>((u, a) =>
+            {
+                usuarioCapturado = u;
+                auditoriaCapturada = a;
+            })
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _service.RestablecerPasswordAsync(userId, adminId, "admin");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(userId, result.UsuarioId);
+        Assert.Equal("recepcionista.test", result.Username);
+        Assert.False(string.IsNullOrWhiteSpace(result.PasswordTemporal));
+        Assert.True(result.PasswordTemporal.Length >= 8);
+        Assert.True(result.RequiereCambioPassword);
+        Assert.False(result.Bloqueado);
+
+        // Verificar que el hash fue actualizado y no contiene la contraseña en texto claro
+        Assert.NotNull(usuarioCapturado);
+        Assert.NotEqual("OLD_HASH", usuarioCapturado.PasswordHash);
+        Assert.Equal($"HASHED_{result.PasswordTemporal}", usuarioCapturado.PasswordHash);
+        Assert.True(usuarioCapturado.RequiereCambioPassword);
+
+        // Verificar registro de auditoría
+        Assert.NotNull(auditoriaCapturada);
+        Assert.Equal(userId, auditoriaCapturada.UsuarioId);
+        Assert.Equal("recepcionista.test", auditoriaCapturada.UsernameAfectado);
+        Assert.Equal("Restablecimiento de contraseña", auditoriaCapturada.TipoOperacion);
+        Assert.Equal(adminId, auditoriaCapturada.AdministradorId);
+        Assert.Equal("admin", auditoriaCapturada.AdministradorUsername);
+        Assert.DoesNotContain(result.PasswordTemporal, auditoriaCapturada.Detalles);
+
+        _usuarioRepoMock.Verify(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithLockedUser_AllowsResetWithoutUnlockingOrModifyingAttempts()
+    {
+        // Arrange (CU-14 Flujo alternativo A4)
+        var userId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.bloqueado",
+            PasswordHash = "OLD_HASH",
+            Activo = true,
+            Bloqueado = true,
+            IntentosFallidos = 5,
+            RequiereCambioPassword = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        Usuario? usuarioCapturado = null;
+        _usuarioRepoMock.Setup(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()))
+            .Callback<Usuario, RegistroOperacionUsuario>((u, a) => usuarioCapturado = u)
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _service.RestablecerPasswordAsync(userId, adminId, "admin");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.True(result.Bloqueado);
+        Assert.True(result.RequiereCambioPassword);
+        Assert.Contains("permanece bloqueada", result.Mensaje);
+
+        // Regla: Bloqueado e IntentosFallidos permanecen inalterados
+        Assert.NotNull(usuarioCapturado);
+        Assert.True(usuarioCapturado.Bloqueado);
+        Assert.Equal(5, usuarioCapturado.IntentosFallidos);
+        Assert.True(usuarioCapturado.RequiereCambioPassword);
+        Assert.Equal($"HASHED_{result.PasswordTemporal}", usuarioCapturado.PasswordHash);
+
+        _usuarioRepoMock.Verify(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithInactiveUser_ThrowsUsuarioInactivoException()
+    {
+        // Arrange (Opción A: Cuenta inactiva no admite restablecimiento)
+        var userId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.inactivo",
+            Activo = false,
+            Bloqueado = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<UsuarioInactivoException>(() =>
+            _service.RestablecerPasswordAsync(userId, Guid.NewGuid(), "admin"));
+
+        Assert.Contains("inactiva", ex.Message);
+        _usuarioRepoMock.Verify(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithNonExistentUser_ThrowsUsuarioNotFoundException()
+    {
+        // Arrange
+        var nonExistentId = Guid.NewGuid();
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(nonExistentId))
+            .ReturnsAsync((Usuario?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UsuarioNotFoundException>(() =>
+            _service.RestablecerPasswordAsync(nonExistentId, Guid.NewGuid(), "admin"));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_OnDatabaseFailure_ThrowsPersistenceException()
+    {
+        // Arrange (CU-14 Flujo alternativo A2)
+        var userId = Guid.NewGuid();
+        var usuario = new Usuario
+        {
+            Id = userId,
+            Username = "user.test",
+            Activo = true,
+            Bloqueado = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByIdTrackedAsync(userId))
+            .ReturnsAsync(usuario);
+
+        _usuarioRepoMock.Setup(r => r.RestablecerPasswordConAuditoriaAsync(It.IsAny<Usuario>(), It.IsAny<RegistroOperacionUsuario>()))
+            .ThrowsAsync(new InvalidOperationException("Falla en la base de datos al asentar la transacción"));
+
+        // Act & Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.RestablecerPasswordAsync(userId, Guid.NewGuid(), "admin"));
+    }
+
+    #endregion
 }
