@@ -1,0 +1,19 @@
+meta {
+  name: 3. Filtrar Usuarios por Rol (Admin - 200 OK)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/usuarios?rol=Recepcionista
+  body: none
+  auth: bearer
+}
+
+params:query {
+  rol: Recepcionista
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

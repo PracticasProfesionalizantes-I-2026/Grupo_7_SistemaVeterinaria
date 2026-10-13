@@ -4,6 +4,7 @@ namespace DataAccess.Repositories;
 
 public interface IUsuarioRepository
 {
+    Task<IReadOnlyList<Usuario>> GetAllAsync(string? username = null, string? rol = null, string? estado = null);
     Task<Usuario?> GetByIdAsync(Guid id);
     Task<Usuario?> GetByUsernameOrEmailAsync(string usernameOrEmail);
     Task<Usuario?> GetByIdTrackedAsync(Guid id);

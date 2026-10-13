@@ -13,6 +13,46 @@ public class UsuarioRepository : IUsuarioRepository
         _context = context;
     }
 
+    public async Task<IReadOnlyList<Usuario>> GetAllAsync(string? username = null, string? rol = null, string? estado = null)
+    {
+        var query = _context.Usuarios
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            var normalizedUser = username.Trim().ToLower();
+            query = query.Where(u => u.Username.ToLower().Contains(normalizedUser));
+        }
+
+        if (!string.IsNullOrWhiteSpace(rol))
+        {
+            var normalizedRol = rol.Trim().ToLower();
+            query = query.Where(u => u.Rol.ToLower() == normalizedRol);
+        }
+
+        if (!string.IsNullOrWhiteSpace(estado))
+        {
+            var normalizedEstado = estado.Trim().ToLower();
+            if (normalizedEstado == "inactivo")
+            {
+                query = query.Where(u => !u.Activo);
+            }
+            else if (normalizedEstado == "bloqueado")
+            {
+                query = query.Where(u => u.Activo && u.Bloqueado);
+            }
+            else if (normalizedEstado == "activo")
+            {
+                query = query.Where(u => u.Activo && !u.Bloqueado);
+            }
+        }
+
+        return await query
+            .OrderBy(u => u.Username)
+            .ToListAsync();
+    }
+
     public async Task<Usuario?> GetByIdAsync(Guid id)
     {
         return await _context.Usuarios

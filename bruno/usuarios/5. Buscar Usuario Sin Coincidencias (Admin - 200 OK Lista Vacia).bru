@@ -1,0 +1,19 @@
+meta {
+  name: 5. Buscar Usuario Sin Coincidencias (Admin - 200 OK Lista Vacia)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/usuarios?username=no_existe_usuario_xyz
+  body: none
+  auth: bearer
+}
+
+params:query {
+  username: no_existe_usuario_xyz
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

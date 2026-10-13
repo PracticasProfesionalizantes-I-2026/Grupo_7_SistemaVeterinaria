@@ -37,6 +37,7 @@ builder.Services.AddScoped<IAtencionMedicaService, AtencionMedicaService>();
 builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 
 // Configuración de Autenticación con JWT Bearer
 var secretKey = builder.Configuration["JwtSettings:SecretKey"] 

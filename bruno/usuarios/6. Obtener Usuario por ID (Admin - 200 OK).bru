@@ -1,0 +1,15 @@
+meta {
+  name: 6. Obtener Usuario por ID (Admin - 200 OK)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/usuarios/{{usuarioId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

@@ -1,0 +1,19 @@
+meta {
+  name: 4. Filtrar Usuarios por Estado (Admin - 200 OK)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/usuarios?estado=Bloqueado
+  body: none
+  auth: bearer
+}
+
+params:query {
+  estado: Bloqueado
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

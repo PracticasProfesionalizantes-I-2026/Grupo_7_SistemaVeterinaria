@@ -1,0 +1,18 @@
+meta {
+  name: 1. Login Exitoso - Administrador (200 OK)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "usuarioOEmail": "admin",
+    "password": "Admin1234!"
+  }
+}
