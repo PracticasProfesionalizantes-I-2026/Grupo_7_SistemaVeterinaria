@@ -74,20 +74,20 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Administrad
 * **A8 — Inicio de sesión con contraseña temporal (cambio obligatorio):**
   1. En el Paso 4, el sistema verifica que las credenciales son correctas y que la cuenta no está bloqueada, pero detecta que la contraseña del usuario es temporal y que el cambio es obligatorio (fue restablecida por el Administrador).
   2. El sistema restablece a cero el contador de intentos fallidos.
-  3. En lugar de conceder acceso a las funcionalidades del sistema, el sistema redirige al usuario a la pantalla de **Cambio obligatorio de contraseña**.
-  4. El usuario ingresa una nueva contraseña y su confirmación.
-  5. El sistema verifica que ambas coincidan y que la nueva contraseña cumpla las condiciones de seguridad establecidas.
-  6. Si los datos son válidos, el sistema almacena la nueva contraseña de forma segura y desactiva la condición de cambio obligatorio.
-  7. El sistema concede acceso al usuario según su rol correspondiente.
-  8. Si el usuario abandona el proceso sin completar el cambio, la condición de cambio obligatorio permanece pendiente y el usuario no podrá acceder a las demás funcionalidades del sistema.
+  3. En lugar de emitir un token JWT de acceso y conceder ingreso al sistema, la API devuelve una respuesta **200 OK** con `requiereCambioPassword: true` y sin token de sesión (`token: null`). Esto instruye al cliente a dirigir al usuario a la pantalla de **Cambio obligatorio de contraseña** (endpoint `POST /api/auth/cambiar-password-temporal`).
+  4. El usuario ingresa su contraseña actual (temporal), una nueva contraseña y su confirmación.
+  5. El sistema verifica que la contraseña actual sea correcta, que ambas contraseñas nuevas coincidan y que cumplan los requisitos de complejidad (al menos 8 caracteres, incluyendo mayúscula, minúscula y número).
+  6. Si los datos son válidos, el sistema almacena el hash de la nueva contraseña y desactiva la condición de cambio obligatorio (`RequiereCambioPassword = false`).
+  7. El usuario puede ahora iniciar sesión con su nueva contraseña definitiva y obtener su token de acceso según su rol correspondiente.
+  8. Si el usuario abandona el proceso sin completar el cambio, la condición de cambio obligatorio permanece pendiente y no se emitirá token de acceso hasta que se concrete el cambio.
 
 ### 5. SUB-VARIACIONES (opcional)
 1. El usuario puede autenticarse utilizando su nombre de usuario o su dirección de correo electrónico registrada.
-2. El acceso se realiza a través de la interfaz web del sistema de gestión veterinaria.
+2. El acceso se realiza a través de la interfaz web o cliente HTTP del sistema de gestión veterinaria.
 
 ### 6. POSTCONDICIONES
-- Si la autenticación es exitosa sin condición de cambio pendiente, el usuario ingresa al sistema con la interfaz y permisos correspondientes a su rol (Recepcionista, Veterinario o Administrador), y el contador de intentos fallidos queda restablecido en cero.
-- Si la autenticación es exitosa pero la contraseña es temporal, el usuario es redirigido al cambio obligatorio de contraseña; una vez completado, accede al sistema con sus permisos de rol.
+- Si la autenticación es exitosa sin condición de cambio pendiente, se emite un Token JWT firmado y el usuario ingresa al sistema con la interfaz y permisos correspondientes a su rol (Recepcionista, Veterinario o Administrador), quedando el contador de intentos fallidos restablecido en cero.
+- Si la autenticación es exitosa pero la contraseña es temporal, no se emite token de sesión y se indica al cliente la obligación de completar el cambio de contraseña; una vez completado, el usuario podrá autenticarse normalmente.
 - Si se alcanza el quinto intento fallido consecutivo, la cuenta pasa a estado bloqueado y requerirá la intervención del Administrador para su desbloqueo (el cual también restablecerá el contador a cero).
 - Queda registrado el resultado del intento de inicio de sesión (éxito, fallo o bloqueo) para fines de auditoría y seguridad.
 
@@ -99,9 +99,9 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Administrad
 
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
-| `200` | OK | Autenticación exitosa, restablecimiento del contador de intentos a cero y acceso concedido al usuario según su rol. |
-| `302` | Found / Redirect | Redirección al flujo de cambio obligatorio de contraseña cuando la contraseña es temporal (A8). |
-| `400` | Bad Request | Formato de solicitud inválido o campos obligatorios vacíos (A5); nueva contraseña inválida en cambio obligatorio (A8). |
+| `200` | OK | Autenticación exitosa, restablecimiento del contador de intentos a cero y emisión de token JWT según rol. En A8 también se retorna 200 OK indicando `requiereCambioPassword: true` (omitiendo la entrega del token) para que el cliente gestione el cambio obligatorio. |
+| `302` | Found / Redirect | *(Aclaración arquitectural)*: En aplicaciones web con vistas renderizadas en servidor representaría redirección HTTP; en esta API RESTful desacoplada se responde con 200 OK y carga informativa `{ "requiereCambioPassword": true, "token": null }` sin emitir token de sesión. |
+| `400` | Bad Request | Formato de solicitud inválido o campos obligatorios vacíos (A5); contraseñas que no coinciden o incumplen complejidad en cambio obligatorio (A8). |
 | `401` | Unauthorized | Contraseña incorrecta (A1); incrementa el contador de intentos fallidos si no se ha alcanzado el límite. |
 | `403` | Forbidden | Acceso denegado por quinto intento fallido consecutivo (A2), cuenta previamente bloqueada (A3) o cuenta inactiva (A6). |
 | `500` | Internal Server Error | Error no controlado en el servicio de autenticación o indisponibilidad en la persistencia (A7). |
@@ -123,8 +123,9 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Administrad
 | A5. Campos obligatorios vacíos | `400 Bad Request` | — (validación en presentación / DataAnnotations) | `Login_WithEmptyCredentials_Returns400BadRequest` |
 | A6. Cuenta inactiva | `403 Forbidden` | `AuthenticateAsync_WithInactiveUser_ThrowsUserInactiveException` | `Login_WithInactiveUser_Returns403Forbidden` |
 | A7. Error del sistema | `500 Internal Server Error` | `AuthenticateAsync_OnDatabaseFailure_ThrowsPersistenceException` | `Login_OnInternalError_Returns500InternalServerError` |
-| A8. Contraseña temporal — redirección | `302 / 200 OK` | `AuthenticateAsync_WithTemporaryPassword_DetectsRequiredChange` | `Login_WithTemporaryPassword_RedirectsToForcePasswordChange` |
-| A8. Contraseña temporal — cambio exitoso | `200 OK` | `ChangePassword_WithValidNewPassword_ClearsTemporaryFlag` | `ForceChangePassword_WithValidData_Returns200OK` |
-| A8. Contraseña temporal — datos inválidos | `400 Bad Request` | `ChangePassword_WithMismatchedPasswords_ThrowsValidationException` | `ForceChangePassword_WithMismatchedPasswords_Returns400BadRequest` |
+| A8. Contraseña temporal — detección | `200 OK` | `AuthenticateAsync_WithTemporaryPassword_ReturnsRequiresPasswordChangeFlagWithoutToken` | `Login_WithTemporaryPassword_Returns200OK_WithRequiresChangeFlagAndNoToken` |
+| A8. Contraseña temporal — cambio exitoso | `200 OK` | `CambiarPasswordTemporalAsync_WithValidData_UpdatesPasswordAndClearsFlag` | `CambiarPasswordTemporal_WithValidData_Returns200OK_AndEnablesNormalLogin` |
+| A8. Contraseña temporal — confirmación dispar | `400 Bad Request` | `CambiarPasswordTemporalAsync_WithMismatchedConfirmation_ThrowsValidationException` | `CambiarPasswordTemporal_WithMismatchedPasswords_Returns400BadRequest` |
+| A8. Contraseña temporal — baja complejidad | `400 Bad Request` | `CambiarPasswordTemporalAsync_WithSimplePassword_ThrowsValidationException` | `CambiarPasswordTemporal_WithSimplePassword_Returns400BadRequest` |
 
 > Regla de oro: cada flujo del caso de uso debe tener al menos un test. En los flujos resueltos en la Capa de Presentación el test aplicable es el de integración HTTP.

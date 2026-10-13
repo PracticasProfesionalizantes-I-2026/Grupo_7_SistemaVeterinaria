@@ -27,4 +27,8 @@
     <ProjectReference Include="..\..\Shared\Shared.csproj" />
   </ItemGroup>
 
+  <Target Name="SignOutputForSmartAppControl" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Command="powershell -Command &quot;if (-not (Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert)) { New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=DevCert' -CertStoreLocation 'Cert:\CurrentUser\My' | Out-Null }; Set-AuthenticodeSignature -FilePath '$(TargetPath)' -Certificate (Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1) | Out-Null&quot;" ContinueOnError="true" />
+  </Target>
+
 </Project>

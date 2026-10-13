@@ -14,6 +14,7 @@ public class AuthServiceTests
     private readonly Mock<IUsuarioRepository> _usuarioRepoMock;
     private readonly Mock<IPasswordHasherService> _hasherMock;
     private readonly Mock<IJwtTokenGenerator> _jwtMock;
+    private readonly Mock<ITokenRevocadoRepository> _tokenRevocadoRepoMock;
     private readonly AuthService _service;
 
     public AuthServiceTests()
@@ -21,7 +22,12 @@ public class AuthServiceTests
         _usuarioRepoMock = new Mock<IUsuarioRepository>();
         _hasherMock = new Mock<IPasswordHasherService>();
         _jwtMock = new Mock<IJwtTokenGenerator>();
-        _service = new AuthService(_usuarioRepoMock.Object, _hasherMock.Object, _jwtMock.Object);
+        _tokenRevocadoRepoMock = new Mock<ITokenRevocadoRepository>();
+        _service = new AuthService(
+            _usuarioRepoMock.Object,
+            _hasherMock.Object,
+            _jwtMock.Object,
+            _tokenRevocadoRepoMock.Object);
     }
 
     [Fact]
@@ -356,5 +362,41 @@ public class AuthServiceTests
         // Act & Assert
         await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(dto));
         _usuarioRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WithValidToken_RevokesTokenSuccessfully()
+    {
+        // Arrange (CU-09 Flujo principal)
+        var jti = Guid.NewGuid().ToString();
+        var userId = Guid.NewGuid();
+        var exp = DateTime.UtcNow.AddHours(2);
+
+        _tokenRevocadoRepoMock.Setup(r => r.EstaRevocadoAsync(jti))
+                              .ReturnsAsync(false);
+
+        // Act
+        await _service.LogoutAsync(jti, userId, exp);
+
+        // Assert
+        _tokenRevocadoRepoMock.Verify(r => r.RevocarAsync(jti, userId, exp), Times.Once);
+    }
+
+    [Fact]
+    public async Task LogoutAsync_WhenAlreadyRevoked_CompletesSuccessfully()
+    {
+        // Arrange (CU-09 Flujo 3a: idempotencia)
+        var jti = Guid.NewGuid().ToString();
+        var userId = Guid.NewGuid();
+        var exp = DateTime.UtcNow.AddHours(2);
+
+        _tokenRevocadoRepoMock.Setup(r => r.EstaRevocadoAsync(jti))
+                              .ReturnsAsync(true);
+
+        // Act
+        await _service.LogoutAsync(jti, userId, exp);
+
+        // Assert
+        _tokenRevocadoRepoMock.Verify(r => r.RevocarAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<DateTime>()), Times.Never);
     }
 }

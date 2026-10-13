@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using BusinessLogic.Interfaces;
 using BusinessLogic.Services;
@@ -27,6 +28,7 @@ builder.Services.AddScoped<IDuenoRepository, DuenoRepository>();
 builder.Services.AddScoped<IMascotaRepository, MascotaRepository>();
 builder.Services.AddScoped<IAtencionMedicaRepository, AtencionMedicaRepository>();
 builder.Services.AddScoped<IUsuarioRepository, UsuarioRepository>();
+builder.Services.AddScoped<ITokenRevocadoRepository, TokenRevocadoRepository>();
 
 // 2. Servicios (BusinessLogic)
 builder.Services.AddScoped<IDuenoService, DuenoService>();
@@ -54,6 +56,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var path = context.HttpContext.Request.Path;
+                bool isLogout = path.StartsWithSegments("/api/auth/logout", StringComparison.OrdinalIgnoreCase);
+
+                // Si la petición no es de logout, bloqueamos los tokens revocados
+                if (!isLogout)
+                {
+                    var jti = context.Principal?.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+                    if (!string.IsNullOrEmpty(jti))
+                    {
+                        var tokenRepo = context.HttpContext.RequestServices.GetRequiredService<ITokenRevocadoRepository>();
+                        if (await tokenRepo.EstaRevocadoAsync(jti))
+                        {
+                            context.Fail("El token de sesión ha sido revocado.");
+                        }
+                    }
+                }
+            }
         };
     });
 

@@ -13,10 +13,22 @@ public class VeterinariaDbContext : DbContext
     public DbSet<Mascota> Mascotas => Set<Mascota>();
     public DbSet<AtencionMedica> AtencionesMedicas => Set<AtencionMedica>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<TokenRevocado> TokensRevocados => Set<TokenRevocado>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // Configuración de TokenRevocado
+        modelBuilder.Entity<TokenRevocado>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => t.Jti).IsUnique();
+            entity.Property(t => t.Jti).IsRequired().HasMaxLength(100);
+            entity.Property(t => t.UsuarioId).IsRequired();
+            entity.Property(t => t.FechaRevocacion).IsRequired();
+            entity.Property(t => t.FechaExpiracion).IsRequired();
+        });
 
         // Configuración de Usuario
         modelBuilder.Entity<Usuario>(entity =>

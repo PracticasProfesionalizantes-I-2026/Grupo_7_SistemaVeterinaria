@@ -268,4 +268,83 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Logout_WithValidBearerToken_Returns200OK()
+    {
+        // Arrange: login para obtener token válido (CU-09 Flujo principal)
+        var loginReq = new LoginRequestDTO { UsuarioOEmail = "admin", Password = "Admin1234!" };
+        var loginRes = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
+        var loginData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(loginData?.Token);
+
+        // Act: enviar POST /api/auth/logout con Authorization Bearer
+        var logoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        logoutReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var logoutRes = await _client.SendAsync(logoutReq);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, logoutRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WithoutAuthorizationHeader_Returns401Unauthorized()
+    {
+        // Act: enviar POST /api/auth/logout sin cabecera de autorización (CU-09 Flujo 1a)
+        var logoutRes = await _client.PostAsync("/api/auth/logout", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, logoutRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WhenTokenAlreadyRevoked_Returns200OK()
+    {
+        // Arrange: login y primer logout (CU-09 Flujo 3a: idempotencia)
+        var loginReq = new LoginRequestDTO { UsuarioOEmail = "vet.carlos", Password = "Vet1234!" };
+        var loginRes = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
+        var loginData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(loginData?.Token);
+
+        var firstLogoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        firstLogoutReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var firstLogoutRes = await _client.SendAsync(firstLogoutReq);
+        Assert.Equal(HttpStatusCode.OK, firstLogoutRes.StatusCode);
+
+        // Act: segundo intento de logout con el mismo token ya revocado
+        var secondLogoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        secondLogoutReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var secondLogoutRes = await _client.SendAsync(secondLogoutReq);
+
+        // Assert: completa exitosamente de forma idempotente con 200 OK
+        Assert.Equal(HttpStatusCode.OK, secondLogoutRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProtectedEndpoint_AfterLogout_Returns401Unauthorized()
+    {
+        // Arrange: login para obtener token
+        var loginReq = new LoginRequestDTO { UsuarioOEmail = "recep.ana", Password = "Recep1234!" };
+        var loginRes = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
+        var loginData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(loginData?.Token);
+
+        // Verificamos que el token funcione antes de logout
+        var verifyReq1 = new HttpRequestMessage(HttpMethod.Get, "/api/auth/verificar-sesion");
+        verifyReq1.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var verifyRes1 = await _client.SendAsync(verifyReq1);
+        Assert.Equal(HttpStatusCode.OK, verifyRes1.StatusCode);
+
+        // Act: Cerramos sesión (logout)
+        var logoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
+        logoutReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var logoutRes = await _client.SendAsync(logoutReq);
+        Assert.Equal(HttpStatusCode.OK, logoutRes.StatusCode);
+
+        // Assert: Intentar usar el token nuevamente es rechazado con 401 Unauthorized
+        var verifyReq2 = new HttpRequestMessage(HttpMethod.Get, "/api/auth/verificar-sesion");
+        verifyReq2.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", loginData.Token);
+        var verifyRes2 = await _client.SendAsync(verifyReq2);
+        Assert.Equal(HttpStatusCode.Unauthorized, verifyRes2.StatusCode);
+    }
 }

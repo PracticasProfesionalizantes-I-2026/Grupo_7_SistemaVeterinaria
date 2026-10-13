@@ -167,6 +167,34 @@ namespace DataAccess.Migrations
                     b.ToTable("Mascotas");
                 });
 
+            modelBuilder.Entity("DataAccess.Entities.TokenRevocado", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FechaExpiracion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FechaRevocacion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Jti")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UsuarioId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Jti")
+                        .IsUnique();
+
+                    b.ToTable("TokensRevocados");
+                });
+
             modelBuilder.Entity("DataAccess.Entities.Usuario", b =>
                 {
                     b.Property<Guid>("Id")

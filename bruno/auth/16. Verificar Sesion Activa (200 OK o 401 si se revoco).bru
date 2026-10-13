@@ -1,0 +1,15 @@
+meta {
+  name: 16. Verificar Sesion Activa (200 OK o 401 si se revoco)
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/api/auth/verificar-sesion
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}

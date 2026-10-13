@@ -1,4 +1,7 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using BusinessLogic.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Shared.DTOs.Auth;
 using Shared.Exceptions;
@@ -66,5 +69,35 @@ public class AuthController : ControllerBase
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
+    }
+
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        var jti = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(jti) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos ausentes." });
+        }
+
+        DateTime? exp = null;
+        var expClaim = User.FindFirst(JwtRegisteredClaimNames.Exp)?.Value;
+        if (long.TryParse(expClaim, out var expSeconds))
+        {
+            exp = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+        }
+
+        await _authService.LogoutAsync(jti, userId, exp);
+        return Ok(new { mensaje = "Sesión cerrada exitosamente." });
+    }
+
+    [Authorize]
+    [HttpGet("verificar-sesion")]
+    public IActionResult VerificarSesion()
+    {
+        return Ok(new { mensaje = "Sesión activa." });
     }
 }

@@ -11,15 +11,18 @@ public class AuthService : IAuthService
     private readonly IUsuarioRepository _usuarioRepository;
     private readonly IPasswordHasherService _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
+    private readonly ITokenRevocadoRepository _tokenRevocadoRepository;
 
     public AuthService(
         IUsuarioRepository usuarioRepository,
         IPasswordHasherService passwordHasher,
-        IJwtTokenGenerator jwtTokenGenerator)
+        IJwtTokenGenerator jwtTokenGenerator,
+        ITokenRevocadoRepository tokenRevocadoRepository)
     {
         _usuarioRepository = usuarioRepository;
         _passwordHasher = passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
+        _tokenRevocadoRepository = tokenRevocadoRepository;
     }
 
     public async Task<LoginResponseDTO> LoginAsync(LoginRequestDTO dto)
@@ -198,5 +201,22 @@ public class AuthService : IAuthService
         {
             throw new ValidationException("La nueva contraseña debe contener al menos un número.");
         }
+    }
+
+    public async Task LogoutAsync(string jti, Guid usuarioId, DateTime? fechaExpiracion = null)
+    {
+        if (string.IsNullOrWhiteSpace(jti))
+        {
+            return;
+        }
+
+        // Flujo alternativo 3a: Cierre de sesión idempotente si el token ya se encontraba revocado
+        if (await _tokenRevocadoRepository.EstaRevocadoAsync(jti))
+        {
+            return;
+        }
+
+        var exp = fechaExpiracion ?? DateTime.UtcNow.AddHours(8);
+        await _tokenRevocadoRepository.RevocarAsync(jti, usuarioId, exp);
     }
 }
