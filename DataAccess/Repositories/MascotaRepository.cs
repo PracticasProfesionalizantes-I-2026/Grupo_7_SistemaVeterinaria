@@ -81,4 +81,21 @@ public class MascotaRepository : IMascotaRepository
         await _context.SaveChangesAsync();
         return true;
     }
+
+    public async Task ReasignarDuenoConHistorialAsync(Mascota mascota, HistorialPropietario historial)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            _context.Mascotas.Update(mascota);
+            await _context.HistorialesPropietarios.AddAsync(historial);
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
 }

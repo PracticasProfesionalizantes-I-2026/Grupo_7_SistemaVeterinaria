@@ -1,11 +1,15 @@
 meta {
-  name: 4. Obtener Mascotas por Dueño
+  name: 4. Obtener Mascotas por Dueño (200 OK)
   type: http
   seq: 4
 }
 
 get {
-  url: {{baseUrl}}/api/mascotas/dueno/00000000-0000-0000-0000-000000000000
+  url: {{baseUrl}}/api/mascotas/dueno/8ae1825f-a1ba-4f3b-a2c6-deaf34c534b5
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6ImEwNzAwMzY3LWRiOWUtNDNhNi1hZjNhLTU3NjYwZjk2MjAzYiIsIm5iZiI6MTc5MTk0MTgyOCwiZXhwIjoxNzkxOTcwNjI4LCJpYXQiOjE3OTE5NDE4MjgsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.34_nB4El12P6gaOP94DtLglA63LJ0_fZJOp71nK0XG8
 }

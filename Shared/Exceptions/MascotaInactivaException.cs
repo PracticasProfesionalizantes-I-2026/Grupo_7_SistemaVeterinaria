@@ -6,4 +6,9 @@ public class MascotaInactivaException : Exception
         : base($"La mascota con identificador '{id}' está inactiva y no puede recibir nuevas atenciones médicas ni turnos.")
     {
     }
+
+    public MascotaInactivaException(string message)
+        : base(message)
+    {
+    }
 }

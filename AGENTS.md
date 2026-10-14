@@ -22,7 +22,7 @@ Todos los comandos deben ejecutarse desde la raíz del repositorio:
 dotnet build SistemaVeterinaria.slnx
 ```
 
-### Ejecución de Pruebas (118 tests: 59 unitarios + 59 de integración)
+### Ejecución de Pruebas (146 tests: 75 unitarios + 71 de integración)
 ```bash
 dotnet test SistemaVeterinaria.slnx
 ```

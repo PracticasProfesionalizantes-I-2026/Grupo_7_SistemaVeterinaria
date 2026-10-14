@@ -11,4 +11,5 @@ public interface IMascotaRepository
     Task<Mascota> CreateAsync(Mascota mascota);
     Task<Mascota> UpdateAsync(Mascota mascota);
     Task<bool> UpdateUltimaVisitaAsync(Guid mascotaId, DateTime fechaVisita);
+    Task ReasignarDuenoConHistorialAsync(Mascota mascota, HistorialPropietario historial);
 }

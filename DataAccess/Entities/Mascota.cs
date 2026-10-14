@@ -17,4 +17,6 @@ public class Mascota
     // Navegación
     public Dueno Dueno { get; set; } = null!;
     public ICollection<AtencionMedica> AtencionesMedicas { get; set; } = new List<AtencionMedica>();
+    public ICollection<HistorialPropietario> HistorialesPropietarios { get; set; } = new List<HistorialPropietario>();
 }
+

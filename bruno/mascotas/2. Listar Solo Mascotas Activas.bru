@@ -1,5 +1,5 @@
 meta {
-  name: 2. Listar Solo Mascotas Activas
+  name: 2. Listar Solo Mascotas Activas (200 OK)
   type: http
   seq: 2
 }
@@ -7,5 +7,9 @@ meta {
 get {
   url: {{baseUrl}}/api/mascotas?soloActivas=true
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjdiMjI2NTcwLTQyMjAtNDQ1OS1hODk1LWUyOGIzZWU2ZTNmZCIsIm5iZiI6MTc5MTk0MDYzOCwiZXhwIjoxNzkxOTY5NDM4LCJpYXQiOjE3OTE5NDA2MzgsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.EtjGFAqegBeRuYDowdpEZvsRtRipN3tl5AYkm5lT6jQ
 }

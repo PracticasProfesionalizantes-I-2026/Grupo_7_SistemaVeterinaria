@@ -30,6 +30,7 @@ builder.Services.AddScoped<IAtencionMedicaRepository, AtencionMedicaRepository>(
 builder.Services.AddScoped<IUsuarioRepository, UsuarioRepository>();
 builder.Services.AddScoped<ITokenRevocadoRepository, TokenRevocadoRepository>();
 builder.Services.AddScoped<IRegistroOperacionUsuarioRepository, RegistroOperacionUsuarioRepository>();
+builder.Services.AddScoped<IHistorialPropietarioRepository, HistorialPropietarioRepository>();
 
 // 2. Servicios (BusinessLogic)
 builder.Services.AddScoped<IDuenoService, DuenoService>();

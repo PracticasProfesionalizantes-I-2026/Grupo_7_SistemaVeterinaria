@@ -15,6 +15,7 @@ public class VeterinariaDbContext : DbContext
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<TokenRevocado> TokensRevocados => Set<TokenRevocado>();
     public DbSet<RegistroOperacionUsuario> RegistrosOperacionesUsuarios => Set<RegistroOperacionUsuario>();
+    public DbSet<HistorialPropietario> HistorialesPropietarios => Set<HistorialPropietario>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -112,6 +113,38 @@ public class VeterinariaDbContext : DbContext
             entity.HasOne(a => a.Mascota)
                   .WithMany(m => m.AtencionesMedicas)
                   .HasForeignKey(a => a.MascotaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de HistorialPropietario
+        modelBuilder.Entity<HistorialPropietario>(entity =>
+        {
+            entity.HasKey(h => h.Id);
+            entity.Property(h => h.MascotaId).IsRequired();
+            entity.Property(h => h.DuenoAnteriorId).IsRequired();
+            entity.Property(h => h.NuevoDuenoId).IsRequired();
+            entity.Property(h => h.FechaReasignacion).IsRequired();
+            entity.Property(h => h.UsuarioId).IsRequired();
+            entity.Property(h => h.UsuarioUsername).IsRequired().HasMaxLength(50);
+
+            entity.HasOne(h => h.Mascota)
+                  .WithMany(m => m.HistorialesPropietarios)
+                  .HasForeignKey(h => h.MascotaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(h => h.DuenoAnterior)
+                  .WithMany()
+                  .HasForeignKey(h => h.DuenoAnteriorId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(h => h.NuevoDueno)
+                  .WithMany()
+                  .HasForeignKey(h => h.NuevoDuenoId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(h => h.Usuario)
+                  .WithMany()
+                  .HasForeignKey(h => h.UsuarioId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
     }

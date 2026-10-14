@@ -1,0 +1,17 @@
+meta {
+  name: 14. Reasignar Dueño - Sin Token (401 Unauthorized)
+  type: http
+  seq: 14
+}
+
+patch {
+  url: {{baseUrl}}/api/mascotas/00000000-0000-0000-0000-000000000000/reasignar-dueno
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nuevoDuenoId": "00000000-0000-0000-0000-000000000000"
+  }
+}

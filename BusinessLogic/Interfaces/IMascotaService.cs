@@ -10,4 +10,5 @@ public interface IMascotaService
     Task<MascotaResponseDTO> CreateAsync(MascotaCreateDTO dto);
     Task<MascotaResponseDTO> UpdateAsync(Guid id, MascotaUpdateDTO dto);
     Task<MascotaResponseDTO> DesactivarAsync(Guid id);
+    Task<MascotaResponseDTO> ReasignarDuenoAsync(Guid mascotaId, Guid nuevoDuenoId, Guid usuarioId, string usuarioUsername);
 }

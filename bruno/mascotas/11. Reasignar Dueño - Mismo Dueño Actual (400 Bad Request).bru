@@ -1,0 +1,21 @@
+meta {
+  name: 11. Reasignar Dueño - Mismo Dueño Actual (400 Bad Request)
+  type: http
+  seq: 11
+}
+
+patch {
+  url: {{baseUrl}}/api/mascotas/e8b35f2d-a3fe-48f4-a749-f2454428cc28/reasignar-dueno
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJkMTdjZTE3OS01ZjFkLTRmYTEtYTUzNi1iY2Y4NzQ4NTY2YjIiLCJ1bmlxdWVfbmFtZSI6InJlY2VwLmFuYSIsImVtYWlsIjoiYW5hLnJlY2VwY2lvbkBwYXRpdGFzLmNvbSIsInJvbGUiOiJSZWNlcGNpb25pc3RhIiwianRpIjoiOTAzZTI3NWQtNzQzNS00MjVmLWE4NzYtZjk0N2RiMzUwMjVjIiwibmJmIjoxNzkxOTM0MDU2LCJleHAiOjE3OTE5NjI4NTYsImlhdCI6MTc5MTkzNDA1NiwiaXNzIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQVBJIiwiYXVkIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQ2xpZW50cyJ9.XSzBCWhJHTprF0XakVd_Yo7csD4PYdBdiZBa34jZSyg
+}
+
+body:json {
+  {
+    "nuevoDuenoId": "8ae1825f-a1ba-4f3b-a2c6-deaf34c534b5"
+  }
+}

@@ -1,6 +1,8 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Shared.DTOs.AtencionMedica;
+using Shared.DTOs.Auth;
 using Shared.DTOs.Mascota;
 using Xunit;
 
@@ -13,6 +15,22 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     public AtencionesMedicasEndpointsTests(CustomWebApplicationFactory factory)
     {
         _client = factory.CreateClient();
+    }
+
+    private async Task AutenticarComoVeterinarioAsync()
+    {
+        var loginReq = new LoginRequestDTO
+        {
+            UsuarioOEmail = "vet.carlos",
+            Password = "Vet1234!"
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/auth/login", loginReq);
+        response.EnsureSuccessStatusCode();
+
+        var authData = await response.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(authData);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authData.Token);
     }
 
     [Fact]
@@ -29,6 +47,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     [Fact]
     public async Task Create_DatosValidosConVacunaApto_Retorna201Created()
     {
+        await AutenticarComoVeterinarioAsync();
+
         // Obtener la mascota activa Milo
         var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
         var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
@@ -57,6 +77,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     [Fact]
     public async Task Create_SobreMascotaInactiva_Retorna409Conflict()
     {
+        await AutenticarComoVeterinarioAsync();
+
         // RN-07: Rocky está inactiva y no puede recibir nuevas atenciones
         var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
         var rocky = mascotas!.First(m => m.Nombre == "Rocky" && !m.Activa);
@@ -79,6 +101,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     [Fact]
     public async Task Create_VacunaSinAptitud_Retorna409Conflict()
     {
+        await AutenticarComoVeterinarioAsync();
+
         // RN-03 / RN-04: No se puede aplicar vacuna si EsAptoVacunacion == false
         var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
         var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);

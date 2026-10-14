@@ -1,0 +1,21 @@
+meta {
+  name: 10. Reasignar Dueño - Mascota Inactiva (409 Conflict)
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/mascotas/9322eec8-9f4b-4d7b-a17e-6b32eded6ad4/reasignar-dueno
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjdiMjI2NTcwLTQyMjAtNDQ1OS1hODk1LWUyOGIzZWU2ZTNmZCIsIm5iZiI6MTc5MTk0MDYzOCwiZXhwIjoxNzkxOTY5NDM4LCJpYXQiOjE3OTE5NDA2MzgsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.EtjGFAqegBeRuYDowdpEZvsRtRipN3tl5AYkm5lT6jQ
+}
+
+body:json {
+  {
+    "nuevoDuenoId": "8ae1825f-a1ba-4f3b-a2c6-deaf34c534b5"
+  }
+}
