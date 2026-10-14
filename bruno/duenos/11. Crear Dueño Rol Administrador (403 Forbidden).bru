@@ -1,0 +1,25 @@
+meta {
+  name: 11. Crear Dueño Rol Administrador (403 Forbidden)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "nombre": "Mariano",
+    "apellido": "Alonso",
+    "dni": "35112233",
+    "telefono": "11-4455-6677",
+    "email": "mariano@example.com"
+  }
+}

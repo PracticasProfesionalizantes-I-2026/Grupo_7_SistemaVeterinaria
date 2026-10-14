@@ -1,0 +1,25 @@
+meta {
+  name: 9. Crear Dueño DNI No Numerico (400 Bad Request)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Roberto",
+    "apellido": "Pérez",
+    "dni": "32A12233",
+    "telefono": "11-4455-6677",
+    "email": "roberto@example.com"
+  }
+}

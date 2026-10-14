@@ -1,0 +1,25 @@
+meta {
+  name: 8. Crear Dueño Email Invalido (400 Bad Request)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "Roberto",
+    "apellido": "Pérez",
+    "dni": "32112233",
+    "telefono": "11-4455-6677",
+    "email": "correo-sin-formato-valido"
+  }
+}

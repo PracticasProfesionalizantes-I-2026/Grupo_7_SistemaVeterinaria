@@ -1,0 +1,25 @@
+meta {
+  name: 7. Crear Dueño Campos Faltantes (400 Bad Request)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "",
+    "apellido": "López",
+    "dni": "30112233",
+    "telefono": "",
+    "email": "incompleto@example.com"
+  }
+}

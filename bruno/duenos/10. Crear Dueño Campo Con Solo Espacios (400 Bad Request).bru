@@ -1,0 +1,25 @@
+meta {
+  name: 10. Crear Dueño Campo Con Solo Espacios (400 Bad Request)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "nombre": "   ",
+    "apellido": "Gómez",
+    "dni": "33445566",
+    "telefono": "11-4455-6677",
+    "email": "gomez@example.com"
+  }
+}

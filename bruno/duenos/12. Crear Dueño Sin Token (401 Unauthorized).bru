@@ -1,0 +1,21 @@
+meta {
+  name: 12. Crear Dueño Sin Token (401 Unauthorized)
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/duenos
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "nombre": "Mariano",
+    "apellido": "Alonso",
+    "dni": "35112233",
+    "telefono": "11-4455-6677",
+    "email": "mariano@example.com"
+  }
+}

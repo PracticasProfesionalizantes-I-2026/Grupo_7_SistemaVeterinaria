@@ -1,4 +1,5 @@
 using BusinessLogic.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Shared.DTOs.Dueno;
 using Shared.Exceptions;
@@ -38,6 +39,7 @@ public class DuenosController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Recepcionista,Veterinario")]
     public async Task<ActionResult<DuenoResponseDTO>> Create([FromBody] DuenoCreateDTO dto)
     {
         try

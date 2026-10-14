@@ -101,16 +101,22 @@ public class DuenoService : IDuenoService
 
     private static void ValidateCreateDto(DuenoCreateDTO dto)
     {
+        if (dto == null)
+            throw new ValidationException("La solicitud no puede ser nula.");
         if (string.IsNullOrWhiteSpace(dto.Nombre))
             throw new ValidationException("El nombre del dueño es obligatorio.");
         if (string.IsNullOrWhiteSpace(dto.Apellido))
             throw new ValidationException("El apellido del dueño es obligatorio.");
         if (string.IsNullOrWhiteSpace(dto.Dni))
             throw new ValidationException("El DNI del dueño es obligatorio.");
+        if (!dto.Dni.Trim().All(char.IsDigit))
+            throw new ValidationException("El DNI debe contener únicamente dígitos numéricos.");
         if (string.IsNullOrWhiteSpace(dto.Telefono))
             throw new ValidationException("El teléfono de contacto es obligatorio.");
         if (string.IsNullOrWhiteSpace(dto.Email))
             throw new ValidationException("El email de contacto es obligatorio.");
+        if (!new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(dto.Email.Trim()))
+            throw new ValidationException("El formato del correo electrónico es inválido.");
     }
 
     private static void ValidateUpdateDto(DuenoUpdateDTO dto)
