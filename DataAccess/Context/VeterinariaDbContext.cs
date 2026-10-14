@@ -16,6 +16,8 @@ public class VeterinariaDbContext : DbContext
     public DbSet<TokenRevocado> TokensRevocados => Set<TokenRevocado>();
     public DbSet<RegistroOperacionUsuario> RegistrosOperacionesUsuarios => Set<RegistroOperacionUsuario>();
     public DbSet<HistorialPropietario> HistorialesPropietarios => Set<HistorialPropietario>();
+    public DbSet<Turno> Turnos => Set<Turno>();
+    public DbSet<DisponibilidadVeterinario> DisponibilidadesVeterinarios => Set<DisponibilidadVeterinario>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -145,6 +147,52 @@ public class VeterinariaDbContext : DbContext
             entity.HasOne(h => h.Usuario)
                   .WithMany()
                   .HasForeignKey(h => h.UsuarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de Turno
+        modelBuilder.Entity<Turno>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.FechaHora).IsRequired();
+            entity.Property(t => t.MotivoConsulta).IsRequired().HasMaxLength(250);
+            entity.Property(t => t.Estado).IsRequired().HasMaxLength(50);
+            entity.Property(t => t.EsAutomatico).IsRequired();
+            entity.Property(t => t.TipoOrigen).IsRequired().HasMaxLength(50);
+            entity.Property(t => t.MotivoCancelacion).HasMaxLength(250);
+            entity.Property(t => t.UsuarioCancelacionUsername).HasMaxLength(50);
+            entity.Property(t => t.FechaCreacion).IsRequired();
+
+            entity.HasIndex(t => new { t.VeterinarioId, t.FechaHora });
+            entity.HasIndex(t => t.AtencionMedicaId);
+
+            entity.HasOne(t => t.Mascota)
+                  .WithMany()
+                  .HasForeignKey(t => t.MascotaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.Veterinario)
+                  .WithMany()
+                  .HasForeignKey(t => t.VeterinarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de DisponibilidadVeterinario
+        modelBuilder.Entity<DisponibilidadVeterinario>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.VeterinarioId).IsRequired();
+            entity.Property(d => d.DiaSemana).IsRequired();
+            entity.Property(d => d.Jornada).IsRequired().HasMaxLength(20);
+            entity.Property(d => d.HoraInicio).IsRequired();
+            entity.Property(d => d.HoraFin).IsRequired();
+            entity.Property(d => d.Activo).IsRequired().HasDefaultValue(true);
+
+            entity.HasIndex(d => new { d.VeterinarioId, d.DiaSemana, d.Jornada });
+
+            entity.HasOne(d => d.Veterinario)
+                  .WithMany()
+                  .HasForeignKey(d => d.VeterinarioId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
     }

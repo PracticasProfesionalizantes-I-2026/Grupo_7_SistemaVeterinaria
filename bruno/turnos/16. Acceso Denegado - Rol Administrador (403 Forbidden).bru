@@ -1,0 +1,24 @@
+meta {
+  name: 16. Acceso Denegado - Rol Administrador (403 Forbidden)
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/turnos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiIzZDc5M2VhNi00MmEwLTQ2NjctYTQxOS05ZGU5NGVkYzhlMmQiLCJ1bmlxdWVfbmFtZSI6ImFkbWluIiwiZW1haWwiOiJhZG1pbkBwYXRpdGFzLmNvbSIsInJvbGUiOiJBZG1pbmlzdHJhZG9yIiwianRpIjoiODYyNmQ5OTUtNTBlYS00ZTZmLWI4ZGEtY2ZlOGZhOGI5OGUyIiwibmJmIjoxNzkyMDEwMDI2LCJleHAiOjE3OTIwMzg4MjYsImlhdCI6MTc5MjAxMDAyNiwiaXNzIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQVBJIiwiYXVkIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQ2xpZW50cyJ9.jV0g2OHdi2o_uNuPyu2U38LuqKN7_I4K4fX2NHGlFdQ
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000001",
+    "veterinarioId": "00000000-0000-0000-0000-000000000002",
+    "fechaHora": "2026-10-20T09:00:00Z",
+    "motivoConsulta": "Intento de agendamiento por rol no autorizado"
+  }
+}

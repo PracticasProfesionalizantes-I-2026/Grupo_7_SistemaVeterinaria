@@ -8,7 +8,6 @@ using DataAccess.Seeding;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,6 +30,8 @@ builder.Services.AddScoped<IUsuarioRepository, UsuarioRepository>();
 builder.Services.AddScoped<ITokenRevocadoRepository, TokenRevocadoRepository>();
 builder.Services.AddScoped<IRegistroOperacionUsuarioRepository, RegistroOperacionUsuarioRepository>();
 builder.Services.AddScoped<IHistorialPropietarioRepository, HistorialPropietarioRepository>();
+builder.Services.AddScoped<ITurnoRepository, TurnoRepository>();
+builder.Services.AddScoped<IDisponibilidadVeterinarioRepository, DisponibilidadVeterinarioRepository>();
 
 // 2. Servicios (BusinessLogic)
 builder.Services.AddScoped<IDuenoService, DuenoService>();
@@ -40,6 +41,7 @@ builder.Services.AddScoped<IPasswordHasherService, PasswordHasherService>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
+builder.Services.AddScoped<ITurnoService, TurnoService>();
 
 // Configuración de Autenticación con JWT Bearer
 var secretKey = builder.Configuration["JwtSettings:SecretKey"] 
@@ -103,7 +105,6 @@ using (var scope = app.Services.CreateScope())
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference(); // Disponible en /scalar/v1
 }
 
 app.UseHttpsRedirection();

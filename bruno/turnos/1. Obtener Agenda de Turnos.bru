@@ -1,0 +1,15 @@
+meta {
+  name: 1. Obtener Agenda de Turnos
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/turnos
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjFmZWEyNjAwLTRhMGYtNDVlOC04ZWQxLWY3MDYwOWIwNzdlYiIsIm5iZiI6MTc5MjAxMDM5MiwiZXhwIjoxNzkyMDM5MTkyLCJpYXQiOjE3OTIwMTAzOTIsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.IA7_EPoUW0z7MRXcCgxygWzzL4kzlM6XWOQBONchDo4
+}

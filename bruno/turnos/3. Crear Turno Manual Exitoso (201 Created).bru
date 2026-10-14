@@ -1,0 +1,24 @@
+meta {
+  name: 3. Crear Turno Manual Exitoso (201 Created)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/turnos
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjFmZWEyNjAwLTRhMGYtNDVlOC04ZWQxLWY3MDYwOWIwNzdlYiIsIm5iZiI6MTc5MjAxMDM5MiwiZXhwIjoxNzkyMDM5MTkyLCJpYXQiOjE3OTIwMTAzOTIsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.IA7_EPoUW0z7MRXcCgxygWzzL4kzlM6XWOQBONchDo4
+}
+
+body:json {
+  {
+    "mascotaId": "6e27f8d2-c87a-4f12-b4fd-fefa76f45395",
+    "veterinarioId": "c6bf571e-1ad0-4249-97c8-fb6b47890cf7",
+    "fechaHora": "2026-10-21T11:00:00",
+    "motivoConsulta": "Control preventivo de rutina"
+  }
+}
