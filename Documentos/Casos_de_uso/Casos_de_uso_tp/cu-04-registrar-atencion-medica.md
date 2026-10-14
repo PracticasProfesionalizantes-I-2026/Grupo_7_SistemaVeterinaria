@@ -1,11 +1,12 @@
 # Caso de Uso: Registrar Atención Médica
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
-> Implementación del registro clínico con reglas de negocio RN-01 (inmutabilidad de atenciones médicas), RN-02 (integración de registros clínicos a la historia clínica), RN-03 (evaluación de aptitud para vacunación), RN-04 (vacunación condicionada a aptitud clínica) y RN-07 (restricción de atención en mascotas inactivas).
+> Implementación del registro clínico con reglas de negocio RN-01 (inmutabilidad de atenciones médicas), RN-02 (integración de registros clínicos a la historia clínica), RN-03 (evaluación de aptitud para vacunación), RN-04 (vacunación condicionada a aptitud clínica), RN-07 (restricción de atención en mascotas inactivas) y RN-11 (generación automática de turnos para seguimiento crónico).
 > Incorpora el control de navegación y advertencia de cambios sin guardar (INF-04).
 > Incorpora el registro opcional de procedimientos quirúrgicos dentro de la atención médica y explicita la exclusión de consentimiento digital y firma en la primera entrega (INF-06).
 > Incorpora la actualización automática de la fecha de última visita de la mascota al guardar exitosamente la atención médica (INF-07).
 > Incorpora la aclaración sobre registro de estudios médicos y resultados diferidos (AMB-01).
+> Incorpora la activación automática del mecanismo de generación de turnos de seguimiento para enfermedades crónicas (CU-06 / RN-11) cuando el diagnóstico corresponda a una patología crónica.
 
 | Campo | Valor |
 | --- | --- |
@@ -14,10 +15,10 @@
 | **Actor Principal** | Veterinario/a |
 | **Actores Secundarios** | Ninguno |
 | **Alcance / Nivel** | Sistema; meta de usuario |
-| **Stakeholders e intereses** | Veterinario/a → asentar de forma rigurosa el diagnóstico, evolución, prescripciones, estudios, procedimientos quirúrgicos y vacunaciones realizadas; Dueño de la Mascota → recibir indicaciones claras de tratamiento y constancia de procedimientos/vacunas aplicadas; Clínica Veterinaria → cumplir normativas de historia clínica inmutable y control sanitario |
+| **Stakeholders e intereses** | Veterinario/a → asentar de forma rigurosa el diagnóstico, evolución, prescripciones, estudios, procedimientos quirúrgicos, vacunaciones y activar planes de seguimiento crónico; Dueño de la Mascota → recibir indicaciones claras de tratamiento, constancia de procedimientos/vacunas aplicadas y turnos programados de control; Clínica Veterinaria → cumplir normativas de historia clínica inmutable, control sanitario y continuidad asistencial |
 | **Disparador (Trigger)** | El veterinario selecciona la opción "Nueva Atención" desde la historia clínica de una mascota |
 | **Prioridad / Frecuencia** | Alta; muy alta frecuencia (se ejecuta en cada acto médico veterinario) |
-| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad de las atenciones médicas); RN-02 (integración de registros clínicos a la historia clínica); RN-03 (evaluación de aptitud para vacunación durante la atención médica); RN-04 (vacunación condicionada a aptitud clínica); RN-07 (mascotas inactivas no pueden registrar nuevas atenciones médicas) |
+| **Reglas de negocio relacionadas** | RN-01 (inmutabilidad de las atenciones médicas); RN-02 (integración de registros clínicos a la historia clínica); RN-03 (evaluación de aptitud para vacunación durante la atención médica); RN-04 (vacunación condicionada a aptitud clínica); RN-07 (mascotas inactivas no pueden registrar nuevas atenciones médicas); RN-11 (generación automática de seguimiento crónico) |
 
 ---
 
@@ -27,6 +28,8 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 El Veterinario puede registrar estudios y sus resultados durante una atención médica. No se permite incorporar información a una atención previamente guardada. Si los resultados llegan posteriormente, deberán registrarse mediante una nueva atención médica.
 
 Al guardarse exitosamente la atención médica, el sistema actualiza de forma automática la fecha de última visita de la mascota en su información general e Historia Clínica utilizando la fecha de dicha atención (asegurando que siempre represente la atención más reciente por fecha y pasando de «Sin visitas registradas» a la fecha actual en caso de ser su primera atención), como parte de la misma transacción de guardado y sin requerir ninguna acción adicional ni manual por parte del Veterinario.
+
+Asimismo, cuando el diagnóstico clínico asentado por el Veterinario corresponda a una **enfermedad crónica**, el sistema le permite indicar el inicio de un plan de seguimiento seleccionando la frecuencia de los controles (quincenal, mensual, bimestral o trimestral) y la jornada preferida del dueño (mañana, tarde o indistinta). Como consecuencia directa e indivisible del guardado exitoso de la atención médica, el sistema activa automáticamente el mecanismo del CU-06 para generar y almacenar la serie de turnos pendientes de seguimiento durante los próximos seis meses vinculados a la atención registrada (**RN-11**), sin requerir una acción manual posterior ni depender de la invocación de un endpoint independiente por parte del personal.
 
 El registro de procedimientos quirúrgicos es **opcional**: no todas las consultas veterinarias incluyen una cirugía, y la ausencia de un procedimiento quirúrgico no impide registrar una atención médica común. Cuando se registra un procedimiento quirúrgico, se consigna el tipo de procedimiento, su descripción y observaciones/complicaciones (opcionales), asignándose automáticamente la fecha actual y al Veterinario responsable a partir del profesional autenticado. El diagnóstico y tratamiento no se duplican por pertenecer a la atención médica. El consentimiento digital y la firma del dueño quedan expresamente excluidos de esta primera entrega y previstos para una etapa futura.
 
@@ -43,11 +46,12 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
    - Estudios complementarios (`estudios[]`).
    - Procedimiento quirúrgico (`procedimientoQuirurgico`: `tipoProcedimiento`, `descripcion`, y opcionalmente `observacionesComplicaciones`).
    - Evaluación de aptitud para vacunación (`evaluacionAptitud`) y vacunas aplicadas (`vacunacion`).
+   - Parámetros de seguimiento crónico ante diagnóstico de enfermedad crónica (`seguimientoCronico`: `frecuencia`, `jornadaPreferida`).
    Una vez ingresada la información, solicita registrar la atención médica enviando una petición al endpoint `POST /api/atenciones`.
-2. La **Capa de Presentación** (`AtencionesController.CreateAtencion`) valida la estructura del payload y verifica que los campos obligatorios del DTO principal y de los sub-objetos estén completos (`AtencionCreateDTO`). Si se incluyó procedimiento quirúrgico, valida que contenga obligatoriamente `tipoProcedimiento` y `descripcion`.
-3. La **Capa de Negocio** (`AtencionService.CreateAtencionAsync`) valida la existencia de la mascota y comprueba que se encuentre en estado **Activa** (**RN-07**), valida su historia clínica, extrae el ID del veterinario autenticado desde los claims del token (asignándolo como profesional de la atención y como Veterinario responsable del procedimiento quirúrgico si lo hubiera), registra la fecha de realización automáticamente correspondiente a la atención actual, y asegura la trazabilidad clínica (**RN-02**). Si se incluye evaluación de aptitud para vacunación mediante la checklist clínica, valida y registra el resultado (`"APTO"` o `"NO_APTO"`) (**RN-03**). Si se incluye registro de vacuna, comprueba que la evaluación de aptitud marque estrictamente resultado `"APTO"` (**RN-04**). Asimismo, evalúa la actualización de la fecha de última visita de la mascota (`FechaUltimaVisita`) para que refleje la fecha de la atención actual (o preserve la más reciente en caso de existir registros previos con fecha posterior).
-4. La **Capa de Persistencia** ejecuta una transacción en base de datos (`DbContext.SaveChangesAsync`), creando el registro inmutable en `Atenciones` (**RN-01**), actualizando automáticamente la fecha de última visita en la entidad `Mascotas` como parte indivisible de la misma transacción (estableciéndola por primera vez si la mascota no tenía visitas previas), y guardando en cascada las prescripciones, solicitudes de estudio, el procedimiento quirúrgico (si fue ingresado), el resultado de la evaluación de aptitud y las vacunas aplicadas vinculadas a dicha atención y a la historia clínica (**RN-02**).
-5. El Sistema devuelve un código **201 Created** con el detalle completo de la atención registrada (`AtencionResponseDTO`), su identificador generado y la confirmación de la fecha de última visita actualizada en la mascota.
+2. La **Capa de Presentación** (`AtencionesController.CreateAtencion`) valida la estructura del payload y verifica que los campos obligatorios del DTO principal y de los sub-objetos estén completos (`AtencionCreateDTO`). Si se incluyó procedimiento quirúrgico, valida que contenga obligatoriamente `tipoProcedimiento` y `descripcion`. Si se incluyó solicitud de seguimiento crónico, valida que contenga una `frecuencia` válida (`Quincenal`, `Mensual`, `Bimestral`, `Trimestral`) y una `jornadaPreferida` válida (`Manana`, `Tarde`, `Indistinta`).
+3. La **Capa de Negocio** (`AtencionService.CreateAtencionAsync`) valida la existencia de la mascota y comprueba que se encuentre en estado **Activa** (**RN-07**), valida su historia clínica, extrae el ID del veterinario autenticado desde los claims del token (asignándolo como profesional de la atención y como Veterinario responsable del procedimiento quirúrgico si lo hubiera), registra la fecha de realización automáticamente correspondiente a la atención actual, y asegura la trazabilidad clínica (**RN-02**). Si se incluye evaluación de aptitud para vacunación mediante la checklist clínica, valida y registra el resultado (`"APTO"` o `"NO_APTO"`) (**RN-03**). Si se incluye registro de vacuna, comprueba que la evaluación de aptitud marque estrictamente resultado `"APTO"` (**RN-04**). Asimismo, evalúa la actualización de la fecha de última visita de la mascota (`FechaUltimaVisita`) para que refleje la fecha de la atención actual (o preserve la más reciente en caso de existir registros previos con fecha posterior). Si la atención incluye seguimiento crónico, prepara la solicitud para activar el mecanismo de generación de turnos provisto por CU-06 (**RN-11**).
+4. La **Capa de Persistencia** ejecuta una transacción en base de datos (`DbContext.SaveChangesAsync`), creando el registro inmutable en `Atenciones` (**RN-01**), actualizando automáticamente la fecha de última visita en la entidad `Mascotas` como parte indivisible de la misma transacción (estableciéndola por primera vez si la mascota no tenía visitas previas), guardando en cascada las prescripciones, solicitudes de estudio, el procedimiento quirúrgico (si fue ingresado), el resultado de la evaluación de aptitud y las vacunas aplicadas vinculadas a dicha atención y a la historia clínica (**RN-02**), y generando la serie de turnos de seguimiento a seis meses en estado `Pendiente` mediante la invocación del mecanismo de CU-06 (**RN-11**).
+5. El Sistema devuelve un código **201 Created** con el detalle completo de la atención registrada (`AtencionResponseDTO`), su identificador generado, la confirmación de la fecha de última visita actualizada en la mascota y la lista de turnos de seguimiento generados automáticamente (`turnosSeguimiento[]`).
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
@@ -71,6 +75,11 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
   2. La Capa de Presentación rechaza la solicitud por validación de esquema en el sub-objeto de procedimiento quirúrgico (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** informando qué datos requeridos del procedimiento están incompletos (`"El tipo de procedimiento quirúrgico y la descripción de la intervención son obligatorios."`).
   4. El sistema conserva los datos en el formulario permitiendo completarlos antes de guardar, sin registrar un procedimiento quirúrgico incompleto. Fin del caso de uso.
+
+* **2d. Información de seguimiento crónico incompleta o inválida (HTTP 400 Bad Request):**
+  1. Si en el Paso 2 se solicita seguimiento para enfermedad crónica pero se omite la frecuencia o la jornada preferida, o se envían valores no válidos para dichos campos.
+  2. La Capa de Presentación rechaza la petición por validación de esquema en el sub-objeto de seguimiento crónico (`ModelState.IsValid == false`).
+  3. El Sistema devuelve un código **400 Bad Request** indicando los campos requeridos (`"La frecuencia de seguimiento y la jornada preferida son obligatorias para el seguimiento de enfermedad crónica."`). Fin del caso de uso.
 
 * **3a. Mascota o Historia Clínica no encontrada (HTTP 404 Not Found):**
   1. Si en el Paso 3 el `mascotaId` no corresponde a ninguna mascota registrada en el sistema.
@@ -125,6 +134,7 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
 4. **Atención médica con evaluación de aptitud y vacunación:** El profesional completa la checklist clínica (sin fiebre, buen estado general, sin enfermedad infecciosa aguda, autorización veterinaria). Al resultar `"APTO"`, el sistema habilita el registro de la vacuna aplicada (lote, vacuna, fecha de próxima dosis), persistiendo ambos registros.
 5. **Atención médica con paciente evaluado NO APTO para vacunación:** El profesional completa la checklist clínica y el resultado es `"NO APTO"`. El sistema bloquea el registro de la vacunación pero permite guardar y finalizar normalmente la atención médica, asentando el resultado `"NO APTO"` de la evaluación en la historia clínica.
 6. **Atención médica con procedimiento quirúrgico:** El Veterinario selecciona la opción de registrar una cirugía realizada durante la consulta, completando el tipo de procedimiento (ej. castración, sutura, extracción de tumor), la descripción de la intervención y, de corresponder, observaciones o complicaciones. La fecha y el Veterinario responsable son asignados automáticamente por el sistema a partir de la atención actual. Al guardar, el procedimiento se registra vinculado a la atención y a la Historia Clínica (**RN-01**, **RN-02**).
+7. **Atención médica con diagnóstico de enfermedad crónica y seguimiento programado:** Al registrar una patología crónica, el Veterinario indica la frecuencia de control y la jornada preferida, activándose de forma automática la generación de la serie de turnos de seguimiento durante los próximos seis meses (CU-06), quedando los turnos en estado Pendiente vinculados a la atención médica recién persistida (**RN-11**).
 
 ### 6. POSTCONDICIONES
 - **Registro exitoso (Camino feliz):**
@@ -133,6 +143,7 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
   - Si se registró un procedimiento quirúrgico, este queda persistido de forma inmutable (**RN-01**) vinculado a la atención médica y a la historia clínica de la mascota (**RN-02**), identificando al Veterinario responsable, fecha de realización, tipo, descripción y observaciones o complicaciones, sin posibilidad de modificación o eliminación posterior.
   - La fecha de última visita de la mascota se actualiza automáticamente en su ficha y en la Historia Clínica con la fecha de la atención guardada (asegurando que represente la atención más reciente registrada). Si la mascota no registraba visitas previas («Sin visitas registradas»), queda fijada la fecha de esta primera atención.
   - Si se aplicaron vacunas con aptitud aprobada, se actualizan los indicadores de última consulta y próximas vacunas de la mascota.
+  - Si la atención médica incluye indicación de seguimiento por enfermedad crónica, quedan generados y persistidos los turnos de la serie a seis meses en estado `Pendiente` (CU-06), vinculados a la atención médica, al paciente y al profesional actuante (**RN-11**).
 - **Salida o abandono del formulario (Flujos A1 / A2):**
   - Si el profesional abandona el formulario saliendo sin guardar o sin cambios pendientes, ningún dato clínico o quirúrgico es persistido en la base de datos ni formará parte de la historia clínica.
   - La atención descartada no se computa como atención realizada ni afecta los antecedentes históricos del paciente.
@@ -149,8 +160,8 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
 
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
-| `201` | Created | Registro exitoso de la atención médica (con o sin vacunas/estudios/prescripciones/procedimiento quirúrgico/evaluación) y actualización de última visita. |
-| `400` | Bad Request | Faltan datos clínicos obligatorios, prescripción incompleta o datos obligatorios del procedimiento quirúrgico ausentes (`tipoProcedimiento`, `descripcion`). |
+| `201` | Created | Registro exitoso de la atención médica (con o sin vacunas/estudios/prescripciones/procedimiento quirúrgico/evaluación/turnos de seguimiento crónico) y actualización de última visita. |
+| `400` | Bad Request | Faltan datos clínicos obligatorios, prescripción incompleta, datos quirúrgicos incompletos o datos de seguimiento crónico inválidos/incompletos. |
 | `404` | Not Found | La mascota especificada no existe en la Capa de Persistencia. |
 | `409` | Conflict | Violación de regla de negocio RN-04 (vacunación sin aptitud APTO) o RN-07 (intento de registrar atención en mascota inactiva). |
 | `500` | Internal Server Error | Error no controlado durante la transacción de guardado en la base de datos. |
@@ -180,10 +191,16 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
 - **Exclusión de gestión quirúrgica compleja:** No se incluye gestión de quirófanos, anestesia, insumos, costos, facturación ni programación quirúrgica independiente.
 - **Exclusión de consentimiento digital y firma:** En esta primera entrega (MVP), el consentimiento digital del dueño, la captura de firma digital o electrónica, el almacenamiento de documentos firmados y la validación digital de autorizaciones quedan expresamente **excluidos del alcance de software** y previstos para una etapa futura. Esta exclusión técnica no exime ni altera las obligaciones legales o profesionales que competen al ejercicio médico veterinario.
 
+### Generación Automática de Turnos de Seguimiento para Enfermedades Crónicas (RN-11)
+
+- **Activación integrada e indivisible:** La generación de la serie de turnos de seguimiento para patologías crónicas se activa automáticamente al confirmarse el guardado de la atención médica. El Veterinario consigna la indicación seleccionando la frecuencia (quincenal, mensual, bimestral o trimestral) y la jornada preferida del dueño (mañana, tarde o indistinta) dentro del mismo formulario de consulta.
+- **Delegación de mecanismo:** CU-04 delega la búsqueda de disponibilidad y la reserva de los bloques de 30 minutos al servicio de turnos (CU-06), vinculando la `AtencionMedicaId` a cada turno generado. No requiere que el personal ejecute un endpoint independiente ni tareas manuales adicionales.
+- **Respuesta unificada:** La respuesta de creación exitosa (HTTP 201 Created) incluye el identificador de la atención médica y el listado de turnos de seguimiento programados con sus fechas y horarios asignados.
+
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400 / UI):** Se validan formatos de texto, presencia de campos obligatorios clínicos (`motivoConsulta`, `diagnostico`, `tratamiento`), campos requeridos del procedimiento quirúrgico (`tipoProcedimiento`, `descripcion`), esquemas válidos en las colecciones hijas (`PrescripcionDTO`, `EstudioDTO`) y la detección de cambios pendientes en el formulario antes de la navegación.
-- **Verificación (Negocio, → 404/409):** Comprobación de existencia y estado activo de la mascota (**RN-07**), validación de su historia clínica e integración de registros (**RN-02**), evaluación de aptitud (**RN-03**), verificación estricta de la aptitud para vacunación (`APTO`) antes de habilitar el registro de la vacuna (**RN-04**), persistencia inmutable de la atención médica y sus procedimientos asociados (**RN-01**) y actualización automática atómica de la fecha de última visita de la mascota.
+- **Validación (Presentación, → 400 / UI):** Se validan formatos de texto, presencia de campos obligatorios clínicos (`motivoConsulta`, `diagnostico`, `tratamiento`), campos requeridos del procedimiento quirúrgico (`tipoProcedimiento`, `descripcion`), valores admitidos para la frecuencia y jornada de seguimiento crónico, esquemas válidos en las colecciones hijas (`PrescripcionDTO`, `EstudioDTO`) y la detección de cambios pendientes en el formulario antes de la navegación.
+- **Verificación (Negocio, → 404/409):** Comprobación de existencia y estado activo de la mascota (**RN-07**), validación de su historia clínica e integración de registros (**RN-02**), evaluación de aptitud (**RN-03**), verificación estricta de la aptitud para vacunación (`APTO`) antes de habilitar el registro de la vacuna (**RN-04**), persistencia inmutable de la atención médica y sus procedimientos asociados (**RN-01**), invocación del mecanismo de generación de turnos crónicos (**RN-11**) y actualización automática atómica de la fecha de última visita de la mascota.
 
 ### Matriz de trazabilidad CU-04 → Test
 
@@ -193,10 +210,12 @@ El sistema controla el abandono del formulario durante la carga, advirtiendo al 
 | Flujo principal (Evaluado NO APTO) | `201 Created` | `CreateAtencionAsync_WhenVaccinationUnfitWithoutVaccine_SavesAtencionWithUnfitEvaluation` | `CreateAtencion_WhenVaccinationUnfitWithoutVaccine_Returns201Created` |
 | Flujo principal (Con procedimiento quirúrgico) | `201 Created` | `CreateAtencionAsync_WithSurgicalProcedure_SavesAtencionAndProcedure` | `CreateAtencion_WithValidSurgicalProcedure_Returns201Created` |
 | Flujo principal (Actualización última visita) | `201 Created` | `CreateAtencionAsync_WhenSaved_UpdatesMascotaFechaUltimaVisita` | `CreateAtencion_WhenSaved_Returns201AndUpdatesFechaUltimaVisita` |
+| Flujo principal (Con seguimiento crónico) | `201 Created` | `CreateAtencionAsync_WithChronicDisease_GeneratesFollowUpTurnosSeries` | `CreateAtencion_WithChronicDisease_Returns201AndTurnosList` |
 | 1a. JSON inválido | `400 Bad Request` | — (model binding de ASP.NET Core) | `CreateAtencion_WithMalformedPayload_Returns400BadRequest` |
 | 2a. Campos clínicos faltantes | `400 Bad Request` | — (validación DataAnnotations) | `CreateAtencion_WithMissingDiagnostico_Returns400BadRequest` |
 | 2b. Prescripción incompleta | `400 Bad Request` | — (validación DataAnnotations en DTO) | `CreateAtencion_WithIncompletePrescripcion_Returns400BadRequest` |
 | 2c. Procedimiento quirúrgico incompleto | `400 Bad Request` | — (validación DataAnnotations en DTO quirúrgico) | `CreateAtencion_WithIncompleteSurgicalProcedure_Returns400BadRequest` |
+| 2d. Seguimiento crónico incompleto | `400 Bad Request` | — (validación DataAnnotations en DTO de seguimiento) | `CreateAtencion_WithIncompleteChronicFollowUp_Returns400BadRequest` |
 | 3a. Mascota inexistente | `404 Not Found` | `CreateAtencionAsync_WhenMascotaNotExists_ThrowsMascotaNotFoundException` | `CreateAtencion_WhenMascotaNotExists_Returns404NotFound` |
 | 3b. Vacuna en paciente no apto | `409 Conflict` | `CreateAtencionAsync_WithUnfitVaccination_ThrowsPacienteNoAptoVacunacionException` | `CreateAtencion_WhenVaccinationUnfit_Returns409Conflict` |
 | 3c. Mascota inactiva | `409 Conflict` | `CreateAtencionAsync_WhenMascotaIsInactive_ThrowsMascotaInactivaException` | `CreateAtencion_WhenMascotaIsInactive_Returns409Conflict` |
