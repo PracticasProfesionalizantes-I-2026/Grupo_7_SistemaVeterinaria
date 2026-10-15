@@ -18,6 +18,9 @@ public class VeterinariaDbContext : DbContext
     public DbSet<HistorialPropietario> HistorialesPropietarios => Set<HistorialPropietario>();
     public DbSet<Turno> Turnos => Set<Turno>();
     public DbSet<DisponibilidadVeterinario> DisponibilidadesVeterinarios => Set<DisponibilidadVeterinario>();
+    public DbSet<ProcedimientoQuirurgico> ProcedimientosQuirurgicos => Set<ProcedimientoQuirurgico>();
+    public DbSet<PrescripcionMedica> PrescripcionesMedicas => Set<PrescripcionMedica>();
+    public DbSet<EstudioComplementario> EstudiosComplementarios => Set<EstudioComplementario>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -104,17 +107,79 @@ public class VeterinariaDbContext : DbContext
             entity.HasKey(a => a.Id);
             entity.Property(a => a.Fecha).IsRequired();
             entity.Property(a => a.MotivoConsulta).IsRequired().HasMaxLength(250);
+            entity.Property(a => a.Anamnesis).IsRequired().HasMaxLength(2000).HasDefaultValue("");
+            entity.Property(a => a.ExamenFisico).IsRequired().HasMaxLength(2000).HasDefaultValue("");
             entity.Property(a => a.Diagnostico).IsRequired().HasMaxLength(1000);
             entity.Property(a => a.Tratamiento).IsRequired().HasMaxLength(1000);
             entity.Property(a => a.PesoRegistrado).HasPrecision(6, 2);
             entity.Property(a => a.EsAptoVacunacion).IsRequired();
+            entity.Property(a => a.AptitudVacunacionResultado).HasMaxLength(20);
+            entity.Property(a => a.MotivoNoAptoVacunacion).HasMaxLength(500);
             entity.Property(a => a.VacunaAplicada).HasMaxLength(100);
+            entity.Property(a => a.VacunaDosis).HasMaxLength(50);
+            entity.Property(a => a.VacunaLote).HasMaxLength(50);
             entity.Property(a => a.Observaciones).HasMaxLength(500);
+            entity.Property(a => a.AlertaDesnutricion).IsRequired().HasDefaultValue(false);
+            entity.Property(a => a.PorcentajeDisminucionPeso).HasPrecision(6, 2);
+            entity.Property(a => a.PesoReferenciaUtilizado).HasPrecision(6, 2);
 
             // Relación hija 1:N con DeleteBehavior.Restrict
             entity.HasOne(a => a.Mascota)
                   .WithMany(m => m.AtencionesMedicas)
                   .HasForeignKey(a => a.MascotaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(a => a.Veterinario)
+                  .WithMany()
+                  .HasForeignKey(a => a.VeterinarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de ProcedimientoQuirurgico
+        modelBuilder.Entity<ProcedimientoQuirurgico>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.TipoProcedimiento).IsRequired().HasMaxLength(100);
+            entity.Property(p => p.Descripcion).IsRequired().HasMaxLength(1000);
+            entity.Property(p => p.Fecha).IsRequired();
+            entity.Property(p => p.ObservacionesComplicaciones).HasMaxLength(500);
+
+            entity.HasOne(p => p.AtencionMedica)
+                  .WithOne(a => a.ProcedimientoQuirurgico)
+                  .HasForeignKey<ProcedimientoQuirurgico>(p => p.AtencionMedicaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(p => p.Veterinario)
+                  .WithMany()
+                  .HasForeignKey(p => p.VeterinarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de PrescripcionMedica
+        modelBuilder.Entity<PrescripcionMedica>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.Medicamento).IsRequired().HasMaxLength(150);
+            entity.Property(p => p.Dosis).IsRequired().HasMaxLength(100);
+            entity.Property(p => p.Frecuencia).IsRequired().HasMaxLength(100);
+            entity.Property(p => p.Duracion).IsRequired().HasMaxLength(100);
+
+            entity.HasOne(p => p.AtencionMedica)
+                  .WithMany(a => a.Prescripciones)
+                  .HasForeignKey(p => p.AtencionMedicaId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de EstudioComplementario
+        modelBuilder.Entity<EstudioComplementario>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nombre).IsRequired().HasMaxLength(150);
+            entity.Property(e => e.Resultado).HasMaxLength(1000);
+
+            entity.HasOne(e => e.AtencionMedica)
+                  .WithMany(a => a.EstudiosComplementarios)
+                  .HasForeignKey(e => e.AtencionMedicaId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -174,6 +239,11 @@ public class VeterinariaDbContext : DbContext
             entity.HasOne(t => t.Veterinario)
                   .WithMany()
                   .HasForeignKey(t => t.VeterinarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.AtencionMedica)
+                  .WithMany(a => a.TurnosSeguimiento)
+                  .HasForeignKey(t => t.AtencionMedicaId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
 

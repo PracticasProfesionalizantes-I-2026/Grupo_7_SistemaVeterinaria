@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using BusinessLogic.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Shared.DTOs.AtencionMedica;
 using Shared.Exceptions;
@@ -7,6 +9,7 @@ namespace API.Controllers;
 
 [ApiController]
 [Route("api/atenciones-medicas")]
+[Route("api/atenciones")]
 public class AtencionesMedicasController : ControllerBase
 {
     private readonly IAtencionMedicaService _atencionMedicaService;
@@ -52,11 +55,20 @@ public class AtencionesMedicasController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Veterinario")]
     public async Task<ActionResult<AtencionMedicaResponseDTO>> Create([FromBody] AtencionMedicaCreateDTO dto)
     {
+        var veterinarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var veterinarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Veterinario";
+
+        if (string.IsNullOrEmpty(veterinarioIdClaim) || !Guid.TryParse(veterinarioIdClaim, out var veterinarioId))
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de Veterinario ausentes." });
+        }
+
         try
         {
-            var result = await _atencionMedicaService.CreateAsync(dto);
+            var result = await _atencionMedicaService.CreateAsync(dto, veterinarioId, veterinarioUsername);
             return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
         }
         catch (ValidationException ex)

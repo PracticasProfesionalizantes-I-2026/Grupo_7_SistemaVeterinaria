@@ -1,0 +1,32 @@
+meta {
+  name: 11. Registrar Atención con Seguimiento Crónico (201 Created - RN-11)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Control endocrinológico y ajuste de insulina",
+    "anamnesis": "Curva de glucemia con picos posprandiales en el último mes.",
+    "examenFisico": "Poliuria y polidipsia referidas. Sin deshidratación clínica evidente.",
+    "diagnostico": "Diabetes Mellitus canina no insulinodependiente",
+    "tratamiento": "Insulina NPH 0.5 UI/kg dos veces al día y dieta diabética",
+    "pesoRegistrado": 28.5,
+    "seguimientoCronico": {
+      "frecuencia": "Quincenal",
+      "jornadaPreferida": "Tarde"
+    },
+    "observaciones": "Se programa serie de controles quincenales para los próximos 6 meses."
+  }
+}

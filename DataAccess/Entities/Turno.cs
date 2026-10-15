@@ -26,4 +26,5 @@ public class Turno
     // Navegación (unidireccional o referencial)
     public Mascota Mascota { get; set; } = null!;
     public Usuario Veterinario { get; set; } = null!;
+    public AtencionMedica? AtencionMedica { get; set; }
 }

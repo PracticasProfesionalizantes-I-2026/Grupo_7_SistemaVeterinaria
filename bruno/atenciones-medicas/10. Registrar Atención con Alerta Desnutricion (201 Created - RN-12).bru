@@ -1,0 +1,28 @@
+meta {
+  name: 10. Registrar Atención con Alerta Desnutrición (201 Created - RN-12)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Pérdida de peso progresiva y decaimiento",
+    "anamnesis": "Propietario nota menor consumo de alimento seco desde hace tres semanas.",
+    "examenFisico": "Condición corporal 2/5, costillas y crestas ilíacas fácilmente palpables.",
+    "diagnostico": "Síndrome consuntivo en estudio / Hiporexia",
+    "tratamiento": "Plan nutricional hipercalórico y antiparasitario",
+    "pesoRegistrado": 24.0,
+    "observaciones": "Se activa alerta clínica de desnutrición por pérdida mayor al 10% respecto a la visita previa."
+  }
+}

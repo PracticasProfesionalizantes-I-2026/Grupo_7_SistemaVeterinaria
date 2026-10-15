@@ -23,6 +23,28 @@ namespace DataAccess.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AlertaDesnutricion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Anamnesis")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("AptitudVacunacionResultado")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("AutorizacionVeterinaria")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("BuenEstadoGeneral")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Diagnostico")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -30,6 +52,13 @@ namespace DataAccess.Migrations
 
                     b.Property<bool>("EsAptoVacunacion")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExamenFisico")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("");
 
                     b.Property<DateTime>("Fecha")
                         .HasColumnType("TEXT");
@@ -42,13 +71,31 @@ namespace DataAccess.Migrations
                         .HasMaxLength(250)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("MotivoNoAptoVacunacion")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Observaciones")
                         .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("PesoReferenciaUtilizado")
+                        .HasPrecision(6, 2)
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("PesoRegistrado")
                         .HasPrecision(6, 2)
                         .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("PorcentajeDisminucionPeso")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("SinEnfermedadInfecciosaAguda")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("SinFiebre")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Tratamiento")
                         .IsRequired()
@@ -59,9 +106,25 @@ namespace DataAccess.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("VacunaDosis")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VacunaLote")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("VacunaProximaDosis")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("VeterinarioId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("MascotaId");
+
+                    b.HasIndex("VeterinarioId");
 
                     b.ToTable("AtencionesMedicas");
                 });
@@ -145,6 +208,31 @@ namespace DataAccess.Migrations
                         .IsUnique();
 
                     b.ToTable("Duenos");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.EstudioComplementario", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AtencionMedicaId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Resultado")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtencionMedicaId");
+
+                    b.ToTable("EstudiosComplementarios");
                 });
 
             modelBuilder.Entity("DataAccess.Entities.HistorialPropietario", b =>
@@ -239,6 +327,81 @@ namespace DataAccess.Migrations
                     b.HasIndex("DuenoId");
 
                     b.ToTable("Mascotas");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.PrescripcionMedica", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AtencionMedicaId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Dosis")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Duracion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Frecuencia")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Medicamento")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtencionMedicaId");
+
+                    b.ToTable("PrescripcionesMedicas");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.ProcedimientoQuirurgico", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AtencionMedicaId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObservacionesComplicaciones")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TipoProcedimiento")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("VeterinarioId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtencionMedicaId")
+                        .IsUnique();
+
+                    b.HasIndex("VeterinarioId");
+
+                    b.ToTable("ProcedimientosQuirurgicos");
                 });
 
             modelBuilder.Entity("DataAccess.Entities.RegistroOperacionUsuario", b =>
@@ -443,7 +606,14 @@ namespace DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("DataAccess.Entities.Usuario", "Veterinario")
+                        .WithMany()
+                        .HasForeignKey("VeterinarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Mascota");
+
+                    b.Navigation("Veterinario");
                 });
 
             modelBuilder.Entity("DataAccess.Entities.DisponibilidadVeterinario", b =>
@@ -455,6 +625,17 @@ namespace DataAccess.Migrations
                         .IsRequired();
 
                     b.Navigation("Veterinario");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.EstudioComplementario", b =>
+                {
+                    b.HasOne("DataAccess.Entities.AtencionMedica", "AtencionMedica")
+                        .WithMany("EstudiosComplementarios")
+                        .HasForeignKey("AtencionMedicaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AtencionMedica");
                 });
 
             modelBuilder.Entity("DataAccess.Entities.HistorialPropietario", b =>
@@ -503,8 +684,43 @@ namespace DataAccess.Migrations
                     b.Navigation("Dueno");
                 });
 
+            modelBuilder.Entity("DataAccess.Entities.PrescripcionMedica", b =>
+                {
+                    b.HasOne("DataAccess.Entities.AtencionMedica", "AtencionMedica")
+                        .WithMany("Prescripciones")
+                        .HasForeignKey("AtencionMedicaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AtencionMedica");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.ProcedimientoQuirurgico", b =>
+                {
+                    b.HasOne("DataAccess.Entities.AtencionMedica", "AtencionMedica")
+                        .WithOne("ProcedimientoQuirurgico")
+                        .HasForeignKey("DataAccess.Entities.ProcedimientoQuirurgico", "AtencionMedicaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DataAccess.Entities.Usuario", "Veterinario")
+                        .WithMany()
+                        .HasForeignKey("VeterinarioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AtencionMedica");
+
+                    b.Navigation("Veterinario");
+                });
+
             modelBuilder.Entity("DataAccess.Entities.Turno", b =>
                 {
+                    b.HasOne("DataAccess.Entities.AtencionMedica", "AtencionMedica")
+                        .WithMany("TurnosSeguimiento")
+                        .HasForeignKey("AtencionMedicaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("DataAccess.Entities.Mascota", "Mascota")
                         .WithMany()
                         .HasForeignKey("MascotaId")
@@ -517,9 +733,22 @@ namespace DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.Navigation("AtencionMedica");
+
                     b.Navigation("Mascota");
 
                     b.Navigation("Veterinario");
+                });
+
+            modelBuilder.Entity("DataAccess.Entities.AtencionMedica", b =>
+                {
+                    b.Navigation("EstudiosComplementarios");
+
+                    b.Navigation("Prescripciones");
+
+                    b.Navigation("ProcedimientoQuirurgico");
+
+                    b.Navigation("TurnosSeguimiento");
                 });
 
             modelBuilder.Entity("DataAccess.Entities.Dueno", b =>

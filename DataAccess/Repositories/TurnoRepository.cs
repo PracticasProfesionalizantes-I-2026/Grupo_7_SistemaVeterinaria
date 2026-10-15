@@ -120,6 +120,9 @@ public class TurnoRepository : ITurnoRepository
                 turno.Id = Guid.NewGuid();
             }
             turno.FechaCreacion = DateTime.UtcNow;
+            turno.Mascota = null!;
+            turno.Veterinario = null!;
+            turno.AtencionMedica = null;
         }
 
         await _context.Turnos.AddRangeAsync(turnos);

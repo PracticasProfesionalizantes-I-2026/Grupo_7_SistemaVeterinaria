@@ -1,0 +1,35 @@
+meta {
+  name: 12. Registrar Atención Checklist NO APTO sin Vacuna (201 Created - Motivo Clínico)
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Control y evaluación para vacunación anual",
+    "anamnesis": "Propietario refiere que el paciente presentó letargia y vómitos aislados en las últimas 24 horas.",
+    "examenFisico": "Temperatura rectal de 39.9°C (febril), ganglios submandibulares reactivos.",
+    "diagnostico": "Cuadro febril agudo de etiología viral/bacteriana en estudio",
+    "tratamiento": "Tratamiento sintomático, fluidoterapia oral y reposo. Se contraindica vacunación.",
+    "pesoRegistrado": 28.5,
+    "evaluacionAptitud": {
+      "sinFiebre": false,
+      "buenEstadoGeneral": false,
+      "sinEnfermedadInfecciosaAguda": false,
+      "autorizacionVeterinaria": false,
+      "motivoNoApto": "Temperatura elevada (39.9°C) y signos de infección aguda. Se posterga vacunación hasta resolución clínica."
+    },
+    "observaciones": "Reevaluación en 7 días para verificar remisión de la fiebre."
+  }
+}

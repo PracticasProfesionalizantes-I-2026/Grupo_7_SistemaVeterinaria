@@ -1,0 +1,21 @@
+meta {
+  name: 14. Registrar Atención - Sin Token (401 Unauthorized)
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Intento anónimo",
+    "diagnostico": "N/A",
+    "tratamiento": "N/A",
+    "pesoRegistrado": 10.0
+  }
+}

@@ -1,0 +1,25 @@
+meta {
+  name: 13. Registrar Atención - Acceso Denegado Rol Recepcionista (403 Forbidden)
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recepToken}}
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Intento de registro sin rol Veterinario",
+    "diagnostico": "N/A",
+    "tratamiento": "N/A",
+    "pesoRegistrado": 10.0
+  }
+}

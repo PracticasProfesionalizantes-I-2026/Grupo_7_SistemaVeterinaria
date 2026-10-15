@@ -1,0 +1,53 @@
+meta {
+  name: 9. Registrar Atención con Cirugía, Prescripciones y Estudios (201 Created)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "motivoConsulta": "Cirugía programada de esterilización",
+    "anamnesis": "Ayuno de sólidos de 12 horas y líquidos de 6 horas cumplido adecuadamente.",
+    "examenFisico": "Mucosas rosadas, tiempo de llenado capilar 1 seg, auscultación cardiopulmonar normal.",
+    "diagnostico": "Esterilización quirúrgica electiva",
+    "tratamiento": "Orquiectomía bilateral y terapia analgésica",
+    "pesoRegistrado": 28.0,
+    "procedimientoQuirurgico": {
+      "tipoProcedimiento": "Orquiectomía",
+      "descripcion": "Incisión prescrotal, ligadura doble de cordones espermáticos y sutura intradérmica absorbible.",
+      "observacionesComplicaciones": "Cirugía sin complicaciones intraoperatorias. Hemostasia adecuada."
+    },
+    "prescripciones": [
+      {
+        "medicamento": "Meloxicam 0.2%",
+        "dosis": "0.1 mg/kg cada 24 horas",
+        "frecuencia": "Cada 24 horas vía oral",
+        "duracion": "3 días"
+      },
+      {
+        "medicamento": "Cefalexina 500mg",
+        "dosis": "25 mg/kg cada 12 horas",
+        "frecuencia": "Cada 12 horas vía oral",
+        "duracion": "7 días"
+      }
+    ],
+    "estudios": [
+      {
+        "nombre": "Hemograma completo prequirúrgico",
+        "resultado": "Hematocrito 42%, glóbulos blancos 9.500/uL, plaquetas normales."
+      }
+    ],
+    "observaciones": "Control de herida y retiro de puntos (si fuera necesario) en 10 días."
+  }
+}
