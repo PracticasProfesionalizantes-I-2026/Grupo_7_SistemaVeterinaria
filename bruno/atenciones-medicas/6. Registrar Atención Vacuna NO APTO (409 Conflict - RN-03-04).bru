@@ -7,12 +7,16 @@ meta {
 post {
   url: {{baseUrl}}/api/atenciones-medicas
   body: json
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjQ1MzM3Y2E2LTJiOTItNGM5Zi1iNDQ0LTZmZmQ0YzJiZjlkZiIsIm5iZiI6MTc5MjEwMTA0MSwiZXhwIjoxNzkyMTI5ODQxLCJpYXQiOjE3OTIxMDEwNDEsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.Crl4v11QH-gW58TurfMT4F__3qMyM9XqRy0sfut4ycw
 }
 
 body:json {
   {
-    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "mascotaId": "00000000-0000-0000-0000-000000000001",
     "motivoConsulta": "Vacunación anual",
     "diagnostico": "Cuadro febril e infección cutánea",
     "tratamiento": "Antibiótico y reposo",
