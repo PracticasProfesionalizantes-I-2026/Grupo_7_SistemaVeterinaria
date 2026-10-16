@@ -1,0 +1,15 @@
+meta {
+  name: 9. Buscar Historias Clinicas por Criterio Nombre (200 OK)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas?criterio=Milo
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

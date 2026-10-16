@@ -98,4 +98,26 @@ public class MascotaRepository : IMascotaRepository
             throw;
         }
     }
+
+    public async Task<IEnumerable<Mascota>> BuscarAsync(string criterio)
+    {
+        var query = _context.Mascotas
+            .AsNoTracking()
+            .Include(m => m.Dueno)
+            .Include(m => m.AtencionesMedicas)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(criterio))
+        {
+            var normalizado = criterio.Trim().ToLower();
+            query = query.Where(m => m.Nombre.ToLower().Contains(normalizado) || 
+                                     (m.Dueno != null && (m.Dueno.Dni.Contains(normalizado) || 
+                                                          m.Dueno.Nombre.ToLower().Contains(normalizado) || 
+                                                          m.Dueno.Apellido.ToLower().Contains(normalizado))));
+        }
+
+        return await query
+            .OrderBy(m => m.Nombre)
+            .ToListAsync();
+    }
 }

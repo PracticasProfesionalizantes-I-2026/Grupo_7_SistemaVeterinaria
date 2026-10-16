@@ -1,0 +1,15 @@
+meta {
+  name: 4. Consultar Historia Clinica Mascota Sin Atenciones (200 OK - Sin visitas registradas)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/b3abd785-2014-4a0a-af11-b3d062183380
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

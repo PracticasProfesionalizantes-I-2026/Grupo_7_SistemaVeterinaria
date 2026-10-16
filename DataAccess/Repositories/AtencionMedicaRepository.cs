@@ -47,6 +47,7 @@ public class AtencionMedicaRepository : IAtencionMedicaRepository
             .Include(a => a.Mascota)
             .Include(a => a.Veterinario)
             .Include(a => a.ProcedimientoQuirurgico)
+                .ThenInclude(p => p!.Veterinario)
             .Include(a => a.Prescripciones)
             .Include(a => a.EstudiosComplementarios)
             .Include(a => a.TurnosSeguimiento)

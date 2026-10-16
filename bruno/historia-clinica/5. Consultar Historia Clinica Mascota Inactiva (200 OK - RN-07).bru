@@ -1,0 +1,15 @@
+meta {
+  name: 5. Consultar Historia Clinica Mascota Inactiva (200 OK - RN-07)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/{{mascotaInactivaId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

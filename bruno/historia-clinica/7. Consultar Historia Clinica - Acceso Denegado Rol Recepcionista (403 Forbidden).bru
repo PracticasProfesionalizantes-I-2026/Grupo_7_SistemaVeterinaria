@@ -1,0 +1,15 @@
+meta {
+  name: 7. Consultar Historia Clinica - Acceso Denegado Rol Recepcionista (403 Forbidden)
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/{{mascotaId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recepToken}}
+}

@@ -1,0 +1,15 @@
+meta {
+  name: 2. Consultar Historia Clinica por Ruta Canonica (200 OK)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/mascotas/{{mascotaId}}/historia-clinica
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

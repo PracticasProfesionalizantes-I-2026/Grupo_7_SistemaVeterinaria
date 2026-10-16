@@ -42,6 +42,7 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 builder.Services.AddScoped<ITurnoService, TurnoService>();
+builder.Services.AddScoped<IHistoriaClinicaService, HistoriaClinicaService>();
 
 // Configuración de Autenticación con JWT Bearer
 var secretKey = builder.Configuration["JwtSettings:SecretKey"] 

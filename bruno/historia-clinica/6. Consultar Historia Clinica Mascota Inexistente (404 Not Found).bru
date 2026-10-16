@@ -1,0 +1,15 @@
+meta {
+  name: 6. Consultar Historia Clinica Mascota Inexistente (404 Not Found)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/00000000-0000-0000-0000-000000000000
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

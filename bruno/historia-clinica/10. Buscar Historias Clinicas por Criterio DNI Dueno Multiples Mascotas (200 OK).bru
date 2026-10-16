@@ -1,0 +1,15 @@
+meta {
+  name: 10. Buscar Historias Clinicas por Criterio DNI Dueno Multiples Mascotas (200 OK)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas?criterio=34567890
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

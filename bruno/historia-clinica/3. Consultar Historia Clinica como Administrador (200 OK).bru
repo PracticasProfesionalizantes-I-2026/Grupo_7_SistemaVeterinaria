@@ -1,0 +1,15 @@
+meta {
+  name: 3. Consultar Historia Clinica como Administrador (200 OK)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/{{mascotaId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}

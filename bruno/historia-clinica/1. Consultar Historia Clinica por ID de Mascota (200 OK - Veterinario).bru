@@ -1,0 +1,15 @@
+meta {
+  name: 1. Consultar Historia Clinica por ID de Mascota (200 OK - Veterinario)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/historias-clinicas/{{mascotaId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
