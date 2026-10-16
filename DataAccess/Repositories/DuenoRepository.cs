@@ -77,4 +77,14 @@ public class DuenoRepository : IDuenoRepository
         await _context.SaveChangesAsync();
         return true;
     }
+
+    public async Task<IEnumerable<Dueno>> GetByRangoFechasAsync(DateTime desde, DateTime hasta)
+    {
+        return await _context.Duenos
+            .AsNoTracking()
+            .Include(d => d.Mascotas)
+            .Where(d => d.FechaRegistro >= desde && d.FechaRegistro <= hasta)
+            .OrderBy(d => d.FechaRegistro)
+            .ToListAsync();
+    }
 }

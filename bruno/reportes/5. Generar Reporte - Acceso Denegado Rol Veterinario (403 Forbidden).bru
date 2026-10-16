@@ -1,0 +1,26 @@
+meta {
+  name: 5. Generar Reporte - Acceso Denegado Rol Veterinario (403 Forbidden)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "motivo": "Intento de generación no autorizada por Veterinario",
+    "tiposReporte": [
+      "Atenciones"
+    ],
+    "fechaDesde": "2026-09-01T00:00:00Z",
+    "fechaHasta": "2026-10-31T23:59:59Z"
+  }
+}

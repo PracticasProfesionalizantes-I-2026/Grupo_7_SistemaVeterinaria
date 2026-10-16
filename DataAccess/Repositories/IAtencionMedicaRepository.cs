@@ -10,4 +10,5 @@ public interface IAtencionMedicaRepository
     Task<AtencionMedica?> GetUltimaAtencionByMascotaIdAsync(Guid mascotaId);
     Task<bool> HasTurnosSeguimientoAsync(Guid atencionMedicaId);
     Task<AtencionMedica> CreateAsync(AtencionMedica atencionMedica);
+    Task<IEnumerable<AtencionMedica>> GetByRangoFechasAsync(DateTime desde, DateTime hasta);
 }

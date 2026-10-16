@@ -1,0 +1,26 @@
+meta {
+  name: 3. Generar Reporte - Rango Fechas Invalido (400 Bad Request)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "motivo": "Prueba de fechas invertidas",
+    "tiposReporte": [
+      "Atenciones"
+    ],
+    "fechaDesde": "2026-12-01T00:00:00Z",
+    "fechaHasta": "2026-01-01T00:00:00Z"
+  }
+}

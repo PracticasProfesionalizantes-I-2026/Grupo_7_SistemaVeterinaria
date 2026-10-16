@@ -137,4 +137,19 @@ public class AtencionMedicaRepository : IAtencionMedicaRepository
         await _context.SaveChangesAsync();
         return atencionMedica;
     }
+
+    public async Task<IEnumerable<AtencionMedica>> GetByRangoFechasAsync(DateTime desde, DateTime hasta)
+    {
+        return await _context.AtencionesMedicas
+            .AsNoTracking()
+            .Include(a => a.Mascota)
+            .Include(a => a.Veterinario)
+            .Include(a => a.ProcedimientoQuirurgico)
+            .Include(a => a.Prescripciones)
+            .Include(a => a.EstudiosComplementarios)
+            .Include(a => a.TurnosSeguimiento)
+            .Where(a => a.Fecha >= desde && a.Fecha <= hasta)
+            .OrderByDescending(a => a.Fecha)
+            .ToListAsync();
+    }
 }

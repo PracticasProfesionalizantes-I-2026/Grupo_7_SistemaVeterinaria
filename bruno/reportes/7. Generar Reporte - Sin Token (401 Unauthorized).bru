@@ -1,0 +1,22 @@
+meta {
+  name: 7. Generar Reporte - Sin Token (401 Unauthorized)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "motivo": "Sin autenticar",
+    "tiposReporte": [
+      "Atenciones"
+    ],
+    "fechaDesde": "2026-09-01T00:00:00Z",
+    "fechaHasta": "2026-10-31T23:59:59Z"
+  }
+}

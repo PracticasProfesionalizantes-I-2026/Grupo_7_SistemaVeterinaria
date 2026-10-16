@@ -1,0 +1,27 @@
+meta {
+  name: 2. Generar Reporte Modular Atenciones y Vacunas (201 Created)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "motivo": "Control clínico y de vacunación semestral",
+    "tiposReporte": [
+      "Atenciones",
+      "Vacunaciones"
+    ],
+    "fechaDesde": "2026-06-01T00:00:00Z",
+    "fechaHasta": "2026-10-31T23:59:59Z"
+  }
+}

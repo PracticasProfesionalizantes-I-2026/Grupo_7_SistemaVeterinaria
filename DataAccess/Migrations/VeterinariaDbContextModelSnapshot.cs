@@ -443,6 +443,64 @@ namespace DataAccess.Migrations
                     b.ToTable("RegistrosOperacionesUsuarios");
                 });
 
+            modelBuilder.Entity("DataAccess.Entities.Reporte", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DatosConsolidadosJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FechaDesde")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FechaGeneracion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FechaHasta")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Motivo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TiposReporteJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TotalAtenciones")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalDuenos")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalMascotas")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalTurnos")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalVacunaciones")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("UsuarioGeneradorId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UsuarioGeneradorUsername")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FechaGeneracion");
+
+                    b.ToTable("Reportes");
+                });
+
             modelBuilder.Entity("DataAccess.Entities.TokenRevocado", b =>
                 {
                     b.Property<Guid>("Id")

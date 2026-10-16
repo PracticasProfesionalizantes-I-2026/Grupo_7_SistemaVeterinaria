@@ -1,0 +1,15 @@
+meta {
+  name: 11. Listar Historial - Acceso Denegado Rol Veterinario (403 Forbidden)
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/reportes
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

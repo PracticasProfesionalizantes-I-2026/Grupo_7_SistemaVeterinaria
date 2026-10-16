@@ -1,0 +1,30 @@
+meta {
+  name: 1. Generar Reporte Integral (201 Created - Administrador)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+body:json {
+  {
+    "motivo": "Auditoría integral mensual de operaciones clínicas y comerciales",
+    "tiposReporte": [
+      "Atenciones",
+      "Vacunaciones",
+      "Mascotas",
+      "Duenos",
+      "Turnos"
+    ],
+    "fechaDesde": "2026-09-01T00:00:00Z",
+    "fechaHasta": "2026-10-31T23:59:59Z"
+  }
+}

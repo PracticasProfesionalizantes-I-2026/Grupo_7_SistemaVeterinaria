@@ -21,6 +21,7 @@ public class VeterinariaDbContext : DbContext
     public DbSet<ProcedimientoQuirurgico> ProcedimientosQuirurgicos => Set<ProcedimientoQuirurgico>();
     public DbSet<PrescripcionMedica> PrescripcionesMedicas => Set<PrescripcionMedica>();
     public DbSet<EstudioComplementario> EstudiosComplementarios => Set<EstudioComplementario>();
+    public DbSet<Reporte> Reportes => Set<Reporte>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -264,6 +265,22 @@ public class VeterinariaDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(d => d.VeterinarioId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Configuración de Reporte (CU-10 y CU-11)
+        modelBuilder.Entity<Reporte>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Motivo).IsRequired().HasMaxLength(200);
+            entity.Property(r => r.FechaDesde).IsRequired();
+            entity.Property(r => r.FechaHasta).IsRequired();
+            entity.Property(r => r.TiposReporteJson).IsRequired();
+            entity.Property(r => r.FechaGeneracion).IsRequired();
+            entity.Property(r => r.UsuarioGeneradorId).IsRequired();
+            entity.Property(r => r.UsuarioGeneradorUsername).IsRequired().HasMaxLength(50);
+            entity.Property(r => r.DatosConsolidadosJson).IsRequired();
+
+            entity.HasIndex(r => r.FechaGeneracion);
         });
     }
 }

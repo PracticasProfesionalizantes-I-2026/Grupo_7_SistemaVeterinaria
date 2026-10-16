@@ -12,4 +12,5 @@ public interface IDuenoRepository
     Task<Dueno> CreateAsync(Dueno dueno);
     Task<Dueno> UpdateAsync(Dueno dueno);
     Task<bool> DeleteAsync(Guid id);
+    Task<IEnumerable<Dueno>> GetByRangoFechasAsync(DateTime desde, DateTime hasta);
 }

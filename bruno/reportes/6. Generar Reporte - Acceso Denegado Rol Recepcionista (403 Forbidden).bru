@@ -1,0 +1,26 @@
+meta {
+  name: 6. Generar Reporte - Acceso Denegado Rol Recepcionista (403 Forbidden)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/reportes/generar
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{recepToken}}
+}
+
+body:json {
+  {
+    "motivo": "Intento de generación no autorizada por Recepcionista",
+    "tiposReporte": [
+      "Turnos"
+    ],
+    "fechaDesde": "2026-09-01T00:00:00Z",
+    "fechaHasta": "2026-10-31T23:59:59Z"
+  }
+}

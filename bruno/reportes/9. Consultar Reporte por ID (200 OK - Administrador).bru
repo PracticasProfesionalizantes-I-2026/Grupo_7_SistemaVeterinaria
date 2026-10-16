@@ -1,0 +1,15 @@
+meta {
+  name: 9. Consultar Reporte por ID (200 OK - Administrador)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/reportes/{{reporteId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
