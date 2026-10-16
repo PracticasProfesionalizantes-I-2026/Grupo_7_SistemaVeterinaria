@@ -20,13 +20,13 @@
 Permite al Administrador (dueño/responsable de la veterinaria) generar nuevos reportes estadísticos y operacionales del sistema para consolidar información sobre atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños dados de alta y turnos en un período específico, registrando el resultado en el historial de reportes.
 
 ### 2. PRECONDICIONES
-- El actor debe haber iniciado sesión y poseer un Token JWT con claim de rol `Administrador` o `DuenoVeterinaria`.
+- El actor debe haber iniciado sesión y poseer un Token JWT con claim de rol `Administrador`.
 - Debe existir información registrada en los módulos consultados dentro del período seleccionado.
 - La Capa de Persistencia debe estar operativa para consolidar y almacenar el reporte.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
 1. El Actor envía una petición al endpoint `POST /api/reportes/generar` con un cuerpo JSON que contiene el `motivo`, la lista de `tiposReporte[]` (`Atenciones`, `Vacunaciones`, `Mascotas`, `Duenos`, `Turnos`), `fechaDesde` y `fechaHasta`.
-2. La **Capa de Presentación** (`ReportesController.GenerarReporte`) valida la autorización del rol (`[Authorize(Roles = "Administrador,DuenoVeterinaria")]`) y valida que los campos requeridos estén presentes en `GenerarReporteRequestDTO`.
+2. La **Capa de Presentación** (`ReportesController.GenerarReporte`) valida la autorización del rol (`[Authorize(Roles = "Administrador")]`) y valida que los campos requeridos estén presentes en `GenerarReporteRequestDTO`.
 3. La **Capa de Negocio** (`ReporteService.GenerarReporteAsync`) valida que la `fechaDesde` sea menor o igual a la `fechaHasta`, ejecuta las consultas de agregación y cálculo estadístico sobre los repositorios correspondientes, y estructura el resultado.
 4. La **Capa de Persistencia** guarda el documento consolidado en la tabla `Reportes` con su fecha de generación y usuario solicitante.
 5. El Sistema devuelve un código **201 Created** con el reporte generado (`ReporteResponseDTO`), su identificador y la URL para su posterior consulta o exportación.
@@ -61,7 +61,7 @@ Permite al Administrador (dueño/responsable de la veterinaria) generar nuevos r
 ### 5. SUB-VARIACIONES (opcional)
 1. **Reporte individual por módulo:** Generación exclusiva de estadísticas de vacunaciones o atenciones.
 2. **Reporte consolidado integral:** Generación con todos los tipos de reportes seleccionados simultáneamente.
-3. **Selección de formato de exportación:** Generación con salida JSON para la web o formato PDF/Excel para descarga directa.
+3. **Selección de formato de exportación:** Salida estructurada en formato JSON implementada en la versión actual; exportación directa en formato binario PDF/Excel aplazada para una etapa futura (Out of Scope v1.0).
 
 ### 6. POSTCONDICIONES
 - Se crea y persiste un nuevo registro en la tabla `Reportes` con sus métricas calculadas.
@@ -83,7 +83,7 @@ Permite al Administrador (dueño/responsable de la veterinaria) generar nuevos r
 
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400/401/403):** Control de acceso por rol `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` y validación de campos obligatorios mediante `[Required]`, `[MinLength(1)]` sobre `tiposReporte` en `GenerarReporteRequestDTO`.
+- **Validación (Presentación, → 400/401/403):** Control de acceso por rol `[Authorize(Roles = "Administrador")]` y validación de campos obligatorios mediante `[Required]`, `[MinLength(1)]` sobre `tiposReporte` en `GenerarReporteRequestDTO`.
 - **Verificación (Negocio, → 400):** Verificación lógica del rango temporal (`fechaDesde <= fechaHasta`) y compilación estadística de los registros en los repositorios de dominio.
 
 ### Matriz de trazabilidad CU-11 → Test

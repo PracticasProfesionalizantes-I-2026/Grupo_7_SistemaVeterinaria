@@ -20,12 +20,12 @@
 Permite al Administrador (dueño/responsable de la veterinaria) consultar los reportes generados recientemente para visualizar métricas e información consolidada sobre las atenciones médicas realizadas, vacunas aplicadas, mascotas registradas, dueños registrados y turnos del sistema.
 
 ### 2. PRECONDICIONES
-- El actor debe haber iniciado sesión con un Token JWT válido que contenga el claim de rol `Administrador` o `DuenoVeterinaria`.
+- El actor debe haber iniciado sesión con un Token JWT válido que contenga el claim de rol `Administrador`.
 - La Capa de Persistencia debe estar operativa y accesible.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200)
 1. El Actor envía una petición al endpoint `GET /api/reportes` (para el listado) o `GET /api/reportes/{id}` (para el detalle de un reporte específico) con el Token JWT en el encabezado `Authorization`.
-2. La **Capa de Presentación** (`ReportesController.GetReporteById`) valida los permisos del rol mediante el atributo `[Authorize(Roles = "Administrador,DuenoVeterinaria")]` y comprueba el formato del parámetro de ruta.
+2. La **Capa de Presentación** (`ReportesController.GetReporteById`) valida los permisos del rol mediante el atributo `[Authorize(Roles = "Administrador")]` y comprueba el formato del parámetro de ruta.
 3. La **Capa de Negocio** (`ReporteService.GetReporteByIdAsync`) recupera el reporte solicitado de la base de datos sin modificar su estado.
 4. La **Capa de Persistencia** ejecuta la consulta de solo lectura (`AsNoTracking()`) sobre la tabla `Reportes`.
 5. El Sistema devuelve un código **200 OK** con los datos estructurados del reporte (`ReporteResponseDTO`).
@@ -60,7 +60,7 @@ Permite al Administrador (dueño/responsable de la veterinaria) consultar los re
 ### 5. SUB-VARIACIONES (opcional)
 1. Consulta del historial de reportes generados (`GET /api/reportes`).
 2. Consulta de visualización de métricas en pantalla (`GET /api/reportes/{id}`).
-3. Descarga del reporte en formato binario (PDF/Excel) mediante `GET /api/reportes/{id}/exportar?formato=pdf`.
+3. Descarga del reporte en formato binario (PDF/Excel) mediante `GET /api/reportes/{id}/exportar?formato=pdf` (pendiente para etapa futura / Out of Scope v1.0).
 
 ### 6. POSTCONDICIONES
 - La información del reporte queda visualizada en la interfaz del administrador.
@@ -83,7 +83,7 @@ Permite al Administrador (dueño/responsable de la veterinaria) consultar los re
 
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400/401/403):** Se valida el formato de la URL y se comprueba el rol de Administrador en el pipeline de autorización `[Authorize(Roles = "Administrador,DuenoVeterinaria")]`.
+- **Validación (Presentación, → 400/401/403):** Se valida el formato de la URL y se comprueba el rol de Administrador en el pipeline de autorización `[Authorize(Roles = "Administrador")]`.
 - **Verificación (Negocio, → 404):** Validación de existencia del reporte en el repositorio y armado del DTO de solo lectura.
 
 ### Matriz de trazabilidad CU-10 → Test
