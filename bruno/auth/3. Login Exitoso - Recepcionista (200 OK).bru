@@ -16,3 +16,8 @@ body:json {
     "password": "NovaPasswordSegura1234!"
   }
 }
+
+script:post-response {
+  const respuesta = res.getBody();
+  bru.setEnvVar("tokenRecepcionista", respuesta.token);
+}

@@ -16,3 +16,8 @@ body:json {
     "password": "Vet1234!"
   }
 }
+
+script:post-response {
+  const respuesta = res.getBody();
+  bru.setEnvVar("tokenVeterinario", respuesta.token);
+}
