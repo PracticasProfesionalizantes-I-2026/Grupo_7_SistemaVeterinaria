@@ -5,15 +5,20 @@ meta {
 }
 
 put {
-  url: {{baseUrl}}/api/duenos/00000000-0000-0000-0000-000000000000
+  url: {{baseUrl}}/api/duenos/{{duenoId}}
   body: json
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenRecepcionista}}
 }
 
 body:json {
   {
     "nombre": "Carlos Alberto",
     "apellido": "González",
+    "dni": "34567890",
     "telefono": "11-4567-9999",
     "email": "carlos.nuevo@example.com",
     "direccion": "Av. Corrientes 4500"

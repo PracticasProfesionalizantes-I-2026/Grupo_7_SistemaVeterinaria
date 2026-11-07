@@ -5,18 +5,18 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/atenciones
+  url: {{baseUrl}}/api/atenciones-medicas
   body: json
   auth: bearer
 }
 
 auth:bearer {
-  token: {{token}}
+  token: {{tokenVeterinario}}
 }
 
 body:json {
   {
-    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "mascotaId": "{{mascotaId}}",
     "motivoConsulta": "Control y evaluación para vacunación anual",
     "anamnesis": "Propietario refiere que el paciente presentó letargia y vómitos aislados en las últimas 24 horas.",
     "examenFisico": "Temperatura rectal de 39.9°C (febril), ganglios submandibulares reactivos.",

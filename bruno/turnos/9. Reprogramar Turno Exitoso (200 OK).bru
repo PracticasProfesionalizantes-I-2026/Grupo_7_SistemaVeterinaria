@@ -1,22 +1,32 @@
 meta {
   name: 9. Reprogramar Turno Exitoso (200 OK)
   type: http
-  seq: 9
+  seq: 10
 }
 
 put {
-  url: {{baseUrl}}/api/turnos/4a0fd2ed-f9e5-4bcd-a51b-aedd51d25f44
+  url: {{baseUrl}}/api/turnos/{{turnoId}}
   body: json
   auth: bearer
 }
 
 auth:bearer {
-  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjFmZWEyNjAwLTRhMGYtNDVlOC04ZWQxLWY3MDYwOWIwNzdlYiIsIm5iZiI6MTc5MjAxMDM5MiwiZXhwIjoxNzkyMDM5MTkyLCJpYXQiOjE3OTIwMTAzOTIsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.IA7_EPoUW0z7MRXcCgxygWzzL4kzlM6XWOQBONchDo4
+  token: {{tokenRecepcionista}}
 }
 
 body:json {
   {
-    "fechaHora": "2026-10-21T10:30:00",
-    "motivoConsulta": "Reprogramación por solicitud del dueño"
+    "fechaHora": "{{fechaTurnoReprogramado}}",
+    "motivoConsulta": "ReprogramaciÃ³n autorizada por solicitud del dueÃ±o"
   }
+}
+
+script:pre-request {
+  // Próximo martes a las 10:30 UTC (dentro de disponibilidad y libre)
+  const ahora = new Date();
+  const proximo = new Date(ahora.getTime());
+  const diasHastaMartes = ((2 - ahora.getDay() + 7) % 7) || 7;
+  proximo.setDate(ahora.getDate() + diasHastaMartes);
+  proximo.setUTCHours(10, 30, 0, 0);
+  bru.setEnvVar("fechaTurnoReprogramado", proximo.toISOString());
 }

@@ -11,5 +11,37 @@ get {
 }
 
 auth:bearer {
-  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiIzZDc5M2VhNi00MmEwLTQ2NjctYTQxOS05ZGU5NGVkYzhlMmQiLCJ1bmlxdWVfbmFtZSI6ImFkbWluIiwiZW1haWwiOiJhZG1pbkBwYXRpdGFzLmNvbSIsInJvbGUiOiJBZG1pbmlzdHJhZG9yIiwianRpIjoiODYyNmQ5OTUtNTBlYS00ZTZmLWI4ZGEtY2ZlOGZhOGI5OGUyIiwibmJmIjoxNzkyMDEwMDI2LCJleHAiOjE3OTIwMzg4MjYsImlhdCI6MTc5MjAxMDAyNiwiaXNzIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQVBJIiwiYXVkIjoiVmV0ZXJpbmFyaWFQYXRpdGFzQ2xpZW50cyJ9.jV0g2OHdi2o_uNuPyu2U38LuqKN7_I4K4fX2NHGlFdQ
+  token: {{tokenAdministrador}}
+}
+
+script:post-response {
+  const usuarios = res.getBody();
+  if (Array.isArray(usuarios) && usuarios.length > 0) {
+    // Usuario general (primer resultado)
+    bru.setEnvVar("usuarioId", usuarios[0].id);
+
+    // Usuario activo no bloqueado
+    const activo = usuarios.find(u => u.activo === true && u.bloqueado === false);
+    if (activo) {
+      bru.setEnvVar("usuarioActivoId", activo.id);
+    }
+
+    // Usuario bloqueado
+    const bloqueado = usuarios.find(u => u.bloqueado === true);
+    if (bloqueado) {
+      bru.setEnvVar("usuarioBloqueadoId", bloqueado.id);
+    }
+
+    // Usuario inactivo
+    const inactivo = usuarios.find(u => u.activo === false);
+    if (inactivo) {
+      bru.setEnvVar("usuarioInactivoId", inactivo.id);
+    }
+
+    // Usuario con password temporal
+    const temporal = usuarios.find(u => u.requiereCambioPassword === true);
+    if (temporal) {
+      bru.setEnvVar("usuarioTemporalId", temporal.id);
+    }
+  }
 }

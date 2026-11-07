@@ -1,11 +1,11 @@
 meta {
   name: 15. Configurar Disponibilidad Semanal (200 OK)
   type: http
-  seq: 15
+  seq: 16
 }
 
 put {
-  url: {{baseUrl}}/api/turnos/disponibilidad/c6bf571e-1ad0-4249-97c8-fb6b47890cf7
+  url: {{baseUrl}}/api/turnos/disponibilidad/{{veterinarioId}}
   body: json
   auth: bearer
 }
@@ -16,7 +16,7 @@ auth:bearer {
 
 body:json {
   {
-    "veterinarioId": "c6bf571e-1ad0-4249-97c8-fb6b47890cf7",
+    "veterinarioId": "{{veterinarioId}}",
     "disponibilidades": [
       {
         "diaSemana": 1,

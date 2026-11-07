@@ -13,3 +13,15 @@ get {
 auth:bearer {
   token: {{tokenRecepcionista}}
 }
+
+script:post-response {
+  const duenos = res.getBody();
+  if (Array.isArray(duenos) && duenos.length > 0) {
+    const conMascotas = duenos.find(d => d.dni === "34567890" || d.cantidadMascotas > 0) || duenos[0];
+    bru.setEnvVar("duenoId", conMascotas.id);
+    const segundo = duenos.find(d => d.id !== conMascotas.id);
+    if (segundo) {
+      bru.setEnvVar("segundoDuenoId", segundo.id);
+    }
+  }
+}

@@ -1,21 +1,21 @@
 meta {
   name: 11. Cancelar Turno Exitoso (200 OK - Auditoria y Liberacion RN-08)
   type: http
-  seq: 11
+  seq: 12
 }
 
 patch {
-  url: {{baseUrl}}/api/turnos/aa502dbc-413f-424c-944a-565ab5dcb7fb/cancelar
+  url: {{baseUrl}}/api/turnos/{{turnoId}}/cancelar
   body: json
   auth: bearer
 }
 
 auth:bearer {
-  token: {{tokenVeterinario}}
+  token: {{tokenRecepcionista}}
 }
 
 body:json {
   {
-    "motivoCancelacion": "El dueño no podrá asistir debido a un viaje laboral imprevisto."
+    "motivoCancelacion": "El dueÃ±o no podrÃ¡ asistir debido a un viaje laboral imprevisto."
   }
 }

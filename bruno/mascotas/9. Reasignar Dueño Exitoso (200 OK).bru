@@ -5,7 +5,7 @@ meta {
 }
 
 patch {
-  url: {{baseUrl}}/api/mascotas/6e27f8d2-c87a-4f12-b4fd-fefa76f45395/reasignar-dueno
+  url: {{baseUrl}}/api/mascotas/{{mascotaCreadaId}}/reasignar-dueno
   body: json
   auth: bearer
 }
@@ -16,6 +16,6 @@ auth:bearer {
 
 body:json {
   {
-    "nuevoDuenoId": "d962aa81-8de5-4d39-b112-e4a03d2e0366"
+    "nuevoDuenoId": "{{segundoDuenoId}}"
   }
 }

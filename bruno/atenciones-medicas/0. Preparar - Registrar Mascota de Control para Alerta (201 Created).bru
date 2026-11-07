@@ -1,0 +1,41 @@
+meta {
+  name: 0. Preparar - Registrar Mascota de Control para Alerta (201 Created)
+  type: http
+  seq: 0
+}
+
+post {
+  url: {{baseUrl}}/api/mascotas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenRecepcionista}}
+}
+
+body:json {
+  {
+    "duenoId": "{{duenoId}}",
+    "nombre": "Control Alerta",
+    "especie": "Perro",
+    "raza": "Mestizo",
+    "sexo": "Hembra",
+    "fechaNacimiento": "2022-03-15T00:00:00Z",
+    "peso": 20.00,
+    "observaciones": "Mascota creada por la colección Bruno para demostrar la alerta de desnutrición (RN-12)."
+  }
+}
+
+script:post-response {
+  const respuesta = res.getBody();
+  if (respuesta && respuesta.id) {
+    bru.setEnvVar("mascotaAlertaId", respuesta.id);
+  }
+}
+
+docs {
+  Solicitud de preparación. Crea en cada ejecución una mascota nueva sin atenciones previas (peso de referencia 20.00 kg),
+  de modo que atenciones-medicas/10 siempre compare contra ese peso y no dependa del orden de las demás atenciones.
+}
+

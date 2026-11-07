@@ -1,0 +1,84 @@
+meta {
+  name: 0. Preparar - Configurar Disponibilidad Semanal (200 OK)
+  type: http
+  seq: 1
+}
+
+put {
+  url: {{baseUrl}}/api/turnos/disponibilidad/{{veterinarioId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+
+body:json {
+  {
+    "veterinarioId": "{{veterinarioId}}",
+    "disponibilidades": [
+      {
+        "diaSemana": 1,
+        "jornada": "Manana",
+        "horaInicio": "08:00:00",
+        "horaFin": "12:00:00"
+      },
+      {
+        "diaSemana": 1,
+        "jornada": "Tarde",
+        "horaInicio": "14:00:00",
+        "horaFin": "18:00:00"
+      },
+      {
+        "diaSemana": 2,
+        "jornada": "Manana",
+        "horaInicio": "08:00:00",
+        "horaFin": "12:00:00"
+      },
+      {
+        "diaSemana": 2,
+        "jornada": "Tarde",
+        "horaInicio": "14:00:00",
+        "horaFin": "18:00:00"
+      },
+      {
+        "diaSemana": 3,
+        "jornada": "Manana",
+        "horaInicio": "08:00:00",
+        "horaFin": "12:00:00"
+      },
+      {
+        "diaSemana": 3,
+        "jornada": "Tarde",
+        "horaInicio": "14:00:00",
+        "horaFin": "18:00:00"
+      },
+      {
+        "diaSemana": 4,
+        "jornada": "Manana",
+        "horaInicio": "08:00:00",
+        "horaFin": "12:00:00"
+      },
+      {
+        "diaSemana": 4,
+        "jornada": "Tarde",
+        "horaInicio": "14:00:00",
+        "horaFin": "18:00:00"
+      },
+      {
+        "diaSemana": 5,
+        "jornada": "Manana",
+        "horaInicio": "08:00:00",
+        "horaFin": "12:00:00"
+      },
+      {
+        "diaSemana": 5,
+        "jornada": "Tarde",
+        "horaInicio": "14:00:00",
+        "horaFin": "18:00:00"
+      }
+    ]
+  }
+}
+

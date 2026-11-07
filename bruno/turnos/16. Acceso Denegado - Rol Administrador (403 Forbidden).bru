@@ -1,7 +1,7 @@
 meta {
   name: 16. Acceso Denegado - Rol Administrador (403 Forbidden)
   type: http
-  seq: 16
+  seq: 17
 }
 
 post {
@@ -16,9 +16,9 @@ auth:bearer {
 
 body:json {
   {
-    "mascotaId": "00000000-0000-0000-0000-000000000001",
-    "veterinarioId": "00000000-0000-0000-0000-000000000002",
-    "fechaHora": "2026-10-20T09:00:00Z",
-    "motivoConsulta": "Intento de agendamiento por rol no autorizado"
+    "mascotaId": "{{mascotaId}}",
+    "veterinarioId": "{{veterinarioId}}",
+    "fechaHora": "{{fechaTurnoValido}}",
+    "motivoConsulta": "Intento de agendar turno con rol no autorizado"
   }
 }

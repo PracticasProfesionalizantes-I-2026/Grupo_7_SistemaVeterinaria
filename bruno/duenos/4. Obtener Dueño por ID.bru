@@ -5,7 +5,11 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/duenos/8ae1825f-a1ba-4f3b-a2c6-deaf34c534b5
+  url: {{baseUrl}}/api/duenos/{{duenoId}}
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenRecepcionista}}
 }

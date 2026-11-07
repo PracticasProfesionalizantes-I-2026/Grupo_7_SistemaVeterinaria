@@ -19,5 +19,18 @@ body:json {
 
 script:post-response {
   const respuesta = res.getBody();
-  bru.setEnvVar("tokenVeterinario", respuesta.token);
+  if (respuesta && respuesta.token) {
+    bru.setEnvVar("tokenVeterinario", respuesta.token);
+    // LoginResponseDTO no expone el Id del usuario: se toma del claim "nameid" del JWT emitido por la API.
+    const segmento = respuesta.token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const relleno = segmento + "=".repeat((4 - (segmento.length % 4)) % 4);
+    const json = typeof Buffer !== "undefined"
+      ? Buffer.from(relleno, "base64").toString("utf8")
+      : decodeURIComponent(escape(atob(relleno)));
+    const claims = JSON.parse(json);
+    const id = claims.nameid || claims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"];
+    if (id) {
+      bru.setEnvVar("veterinarioId", id);
+    }
+  }
 }

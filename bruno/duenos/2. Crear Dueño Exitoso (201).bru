@@ -14,11 +14,16 @@ auth:bearer {
   token: {{tokenRecepcionista}}
 }
 
+script:pre-request {
+  // DNI numérico de 8 dígitos generado en cada ejecución para que el alta no colisione con RN-05 al repetirla.
+  bru.setVar("dniNuevoDueno", String(41000000 + Math.floor(Math.random() * 8999999)));
+}
+
 body:json {
   {
     "nombre": "Jazmin",
     "apellido": "Villa",
-    "dni": "40617303",
+    "dni": "{{dniNuevoDueno}}",
     "telefono": "11-4454-4956",
     "email": "jazmin.villa@example.com",
     "direccion": "Calle hola"

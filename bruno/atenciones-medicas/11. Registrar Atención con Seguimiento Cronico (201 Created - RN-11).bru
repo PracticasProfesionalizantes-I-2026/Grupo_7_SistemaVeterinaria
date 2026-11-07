@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/atenciones
+  url: {{baseUrl}}/api/atenciones-medicas
   body: json
   auth: bearer
 }
@@ -16,13 +16,14 @@ auth:bearer {
 
 body:json {
   {
-    "mascotaId": "8c41207d-5f6c-455e-9f44-71cd988afcd5",
+    "mascotaId": "{{mascotaId}}",
     "motivoConsulta": "Control endocrinológico y ajuste de insulina",
     "anamnesis": "Curva de glucemia con picos posprandiales en el último mes.",
     "examenFisico": "Poliuria y polidipsia referidas. Sin deshidratación clínica evidente.",
     "diagnostico": "Diabetes Mellitus canina no insulinodependiente",
     "tratamiento": "Insulina NPH 0.5 UI/kg dos veces al día y dieta diabética",
     "pesoRegistrado": 28.5,
+    "esEnfermedadCronica": true,
     "seguimientoCronico": {
       "frecuencia": "Quincenal",
       "jornadaPreferida": "Tarde"

@@ -11,14 +11,31 @@ post {
 }
 
 auth:bearer {
-  token: {{tokenVeterinario}}
+  token: {{tokenRecepcionista}}
 }
 
 body:json {
   {
-    "mascotaId": "6e27f8d2-c87a-4f12-b4fd-fefa76f45395",
-    "veterinarioId": "c6bf571e-1ad0-4249-97c8-fb6b47890cf7",
-    "fechaHora": "2026-11-03T11:00:00",
-    "motivoConsulta": "Control preventivo de rutina"
+    "mascotaId": "{{mascotaId}}",
+    "veterinarioId": "{{veterinarioId}}",
+    "fechaHora": "{{fechaTurnoValido}}",
+    "motivoConsulta": "Control clÃ­nico periÃ³dico programado"
+  }
+}
+
+script:pre-request {
+  // Calcular próximo lunes a las 09:00 UTC (siempre a futuro y dentro de disponibilidad)
+  const ahora = new Date();
+  const proximo = new Date(ahora.getTime());
+  const diasHastaLunes = ((1 - ahora.getDay() + 7) % 7) || 7;
+  proximo.setDate(ahora.getDate() + diasHastaLunes);
+  proximo.setUTCHours(9, 0, 0, 0);
+  bru.setEnvVar("fechaTurnoValido", proximo.toISOString());
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("turnoId", data.id);
   }
 }

@@ -11,13 +11,15 @@ post {
 }
 
 auth:bearer {
-  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiJjNmJmNTcxZS0xYWQwLTQyNDktOTdjOC1mYjZiNDc4OTBjZjciLCJ1bmlxdWVfbmFtZSI6InZldC5jYXJsb3MiLCJlbWFpbCI6ImNhcmxvcy52ZXRlcmluYXJpb0BwYXRpdGFzLmNvbSIsInJvbGUiOiJWZXRlcmluYXJpbyIsImp0aSI6IjQ1MzM3Y2E2LTJiOTItNGM5Zi1iNDQ0LTZmZmQ0YzJiZjlkZiIsIm5iZiI6MTc5MjEwMTA0MSwiZXhwIjoxNzkyMTI5ODQxLCJpYXQiOjE3OTIxMDEwNDEsImlzcyI6IlZldGVyaW5hcmlhUGF0aXRhc0FQSSIsImF1ZCI6IlZldGVyaW5hcmlhUGF0aXRhc0NsaWVudHMifQ.Crl4v11QH-gW58TurfMT4F__3qMyM9XqRy0sfut4ycw
+  token: {{tokenVeterinario}}
 }
 
 body:json {
   {
-    "mascotaId": "00000000-0000-0000-0000-000000000001",
+    "mascotaId": "{{mascotaId}}",
     "motivoConsulta": "Vacunación anual",
+    "anamnesis": "Propietario refiere decaimiento y lesiones dérmicas desde hace 48 horas.",
+    "examenFisico": "Temperatura rectal 39.8°C, eritema y pústulas superficiales en región abdominal.",
     "diagnostico": "Cuadro febril e infección cutánea",
     "tratamiento": "Antibiótico y reposo",
     "pesoRegistrado": 28.0,

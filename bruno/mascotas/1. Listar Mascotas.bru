@@ -13,3 +13,20 @@ get {
 auth:bearer {
   token: {{tokenVeterinario}}
 }
+
+script:post-response {
+  const mascotas = res.getBody();
+  if (Array.isArray(mascotas) && mascotas.length > 0) {
+    const activa = mascotas.find(m => m.activa === true && m.nombre === "Milo") || mascotas.find(m => m.activa === true) || mascotas[0];
+    bru.setEnvVar("mascotaId", activa.id);
+    bru.setEnvVar("mascotaDuenoId", activa.duenoId);
+    const sinAtenciones = mascotas.find(m => m.nombre === "Luna") || mascotas.find(m => m.activa === true && !m.fechaUltimaVisita && m.id !== activa.id);
+    if (sinAtenciones) {
+      bru.setEnvVar("mascotaSinAtencionesId", sinAtenciones.id);
+    }
+    const inactiva = mascotas.find(m => m.activa === false && m.nombre === "Rocky") || mascotas.find(m => m.activa === false);
+    if (inactiva) {
+      bru.setEnvVar("mascotaInactivaId", inactiva.id);
+    }
+  }
+}

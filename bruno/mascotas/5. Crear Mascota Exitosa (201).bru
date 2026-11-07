@@ -16,13 +16,21 @@ auth:bearer {
 
 body:json {
   {
-    "duenoId": "682fbb7a-6e76-4fd6-8e74-0ff2a250f8c2",
+    "duenoId": "{{duenoId}}",
     "nombre": "Violeta",
     "especie": "Perro",
     "raza": "Mestizo",
-    "sexo": "Macho",
+    "sexo": "Hembra",
     "fechaNacimiento": "2023-05-10T00:00:00Z",
     "peso": 12.50,
     "observaciones": "Paciente enérgico y saludable."
+  }
+}
+
+script:post-response {
+  // La mascota creada aquí es la que reasigna mascotas/9, para no alterar el dueño de {{mascotaId}}.
+  const respuesta = res.getBody();
+  if (respuesta && respuesta.id) {
+    bru.setEnvVar("mascotaCreadaId", respuesta.id);
   }
 }

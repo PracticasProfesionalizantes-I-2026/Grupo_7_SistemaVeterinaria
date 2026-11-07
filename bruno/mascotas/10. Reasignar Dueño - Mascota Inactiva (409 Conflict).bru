@@ -5,22 +5,17 @@ meta {
 }
 
 patch {
-  url: {{baseUrl}}/api/mascotas//reasignar-dueno
+  url: {{baseUrl}}/api/mascotas/{{mascotaInactivaId}}/reasignar-dueno
   body: json
   auth: bearer
 }
 
 auth:bearer {
-  token: "id": "8c41207d-5f6c-455e-9f44-71cd988afcd5",
-      "duenoId": "d962aa81-8de5-4d39-b112-e4a03d2e0366",
-      "nombreDueno": "Mariana López",
-      "nombre": "Thor Actualizado",
-      "especie": "Perro",
-      "raza": "Pastor Alemán Puro",
+  token: {{tokenVeterinario}}
 }
 
 body:json {
   {
-    "nuevoDuenoId": "8ae1825f-a1ba-4f3b-a2c6-deaf34c534b5"
+    "nuevoDuenoId": "{{duenoId}}"
   }
 }

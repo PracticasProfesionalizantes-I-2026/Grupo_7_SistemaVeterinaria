@@ -5,15 +5,17 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/atenciones
+  url: {{baseUrl}}/api/atenciones-medicas
   body: json
   auth: none
 }
 
 body:json {
   {
-    "mascotaId": "00000000-0000-0000-0000-000000000000",
+    "mascotaId": "{{mascotaId}}",
     "motivoConsulta": "Intento anónimo",
+    "anamnesis": "Evaluación inicial.",
+    "examenFisico": "Parámetros normales.",
     "diagnostico": "N/A",
     "tratamiento": "N/A",
     "pesoRegistrado": 10.0

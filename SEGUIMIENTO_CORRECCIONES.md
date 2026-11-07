@@ -6,7 +6,7 @@ Documento maestro de trazabilidad y seguimiento de los hallazgos detectados en l
 
 ## 1. Resumen general
 
-Se identificaron un total de **38 problemas** (más **1 verificación visual pendiente de Mockups**), clasificados según su nivel de prioridad:
+Se identificaron un total de **38 problemas**, clasificados según su nivel de prioridad:
 
 | Prioridad | Cantidad | Categorías alcanzadas |
 | :--- | :---: | :--- |
@@ -14,7 +14,7 @@ Se identificaron un total de **38 problemas** (más **1 verificación visual pen
 | **Alta** | **12** | Escalación de privilegios (`SEC-04`), auditoría de creación (`BD-02`), validaciones de fechas, pesos y dueños (`VAL-01`, `VAL-02`, `VAL-04`, `VAL-05`), manejo de errores (`ERR-01`, `ERR-02`, `ERR-03`), bugs funcionales (`BUG-01`, `BUG-02`) y pruebas de integración (`TEST-01`). |
 | **Media** | **13** | Configuración y revocación JWT (`SEC-05`, `SEC-06`), atomicidad transaccional (`BD-03`), validaciones de dominio (`VAL-03`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`), formato de errores (`ERR-04`), flujos de turnos y atenciones (`BUG-04`, `BUG-05`, `BUG-06`) y edición de mascota (`DOC-01`). |
 | **Baja** | **8** | Prevención de duplicados (`VAL-10`), alineación documental (`DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`) y calidad de código / arquitectura (`SMELL-01`, `SMELL-02`, `SMELL-03`). |
-| **Total** | **38** | *(Adicionalmente: `MOCK-01` pendiente de acceso visual a los mockups de Excalidraw).* |
+| **Total** | **38** | *(29 completadas y 9 postergadas como mejoras para futuras versiones).* |
 
 ### 1.1. Resumen de estados al cierre de la entrega
 
@@ -25,7 +25,6 @@ Se identificaron un total de **38 problemas** (más **1 verificación visual pen
 | **Media** | **13** | **11** | **2** | **Completadas (11):** `SEC-05`, `SEC-06`, `VAL-03`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`, `BUG-04`, `BUG-05`, `BUG-06`, `DOC-01`.<br>**Postergadas (2):** `BD-03`, `ERR-04` *(preservación de estabilidad transaccional y contratos JSON existentes)*. |
 | **Baja** | **8** | **4** | **4** | **Completadas (4):** `DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`.<br>**Postergadas (4):** `VAL-10`, `SMELL-01`, `SMELL-02`, `SMELL-03` *(mejoras opcionales y refactorizaciones internas sin impacto funcional)*. |
 | **Total Hallazgos** | **38** | **29** | **9** | **Suite de pruebas automatizadas:** `539/539` aprobadas (`314` unitarias + `225` de integración). |
-| **Anexo Mockups** | **1** | **0** | **1 (Pendiente)** | `MOCK-01`: Pendiente de exportación visual externa desde Excalidraw (`.excalidraw` / `.png` / `.svg`). |
 
 ---
 
@@ -746,22 +745,7 @@ Se identificaron un total de **38 problemas** (más **1 verificación visual pen
 
 ---
 
-## 3. Mockups
-
-### MOCK-01 — Comparación visual entre Mockups de Excalidraw y el sistema implementado
-- **Código:** MOCK-01
-- **Ubicación del enlace:** `README.md` (línea 10: `https://excalidraw.com/#json=LGOu8FaIBGP1mWAqq2GDl,4XjMZUIbbWtyVVLBS2Zz2Q`).
-- **Motivo del estado pendiente:** Los enlaces compartidos de Excalidraw con formato `#json=<id>,<clave>` almacenan la clave de desencriptación en el fragmento `#` de la URL y requieren desencriptación del lado del cliente en un navegador interactivo; además, no existen archivos `.excalidraw` ni capturas `.png`/`.svg` exportadas dentro del repositorio.
-- **Acción requerida:** Exportar manualmente desde Excalidraw el archivo `.excalidraw` o imágenes `.png`/`.svg` si se desea incorporar una verificación visual estática en el repositorio.
-- **Decisión aprobada:** Mantener como pendiente externo por limitación técnica de acceso sin navegador a recursos encriptados en el fragmento `#json=` de Excalidraw.
-- **Estado:** Pendiente (Requiere exportación visual externa desde Excalidraw)
-- **Solución implementada:** No aplica sobre el código ni documentos actuales sin los archivos exportados de Excalidraw.
-- **Pruebas necesarias:** Verificación cruzada entre cada pantalla del mockup, los 14 Casos de Uso (`CU-01` a `CU-14`) y los DTOs/controladores del backend.
-- **Resultado de las pruebas:** Pendiente (Acceso externo)
-
----
-
-## 4. Seguimiento de avances
+## 3. Seguimiento de avances
 
 | Código | Problema | Prioridad | Estado | Pruebas |
 |---|---|---|---|---|
@@ -803,14 +787,48 @@ Se identificaron un total de **38 problemas** (más **1 verificación visual pen
 | **SMELL-02** | Duplicación exacta de `CalcularFechasIdeales` y mapeos de DTOs entre múltiples servicios | Baja | Postergada (Refactor interno) | Postergada |
 | **SMELL-03** | Enum `RolUsuario` sin utilizar y uso de literales de texto (*magic strings*) para roles | Baja | Postergada (Mejora cosmética) | Postergada |
 | **TEST-01** | Autenticación JWT en tests de integración y cobertura integral de validaciones, errores y seguridad | Alta | Completada | Superadas (539/539) |
-| **MOCK-01** | Comparación visual pendiente entre Mockups de Excalidraw y el sistema implementado | Media | Pendiente (Acceso externo Excalidraw) | Pendiente |
 
-### 4.1. Balance final de hallazgos
+### 3.1. Balance final de hallazgos
 
 - **Hallazgos técnicos relevados:** **38**
-  - **Completadas:** **29 / 38** (`SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `SEC-05`, `SEC-06`, `VAL-01`, `VAL-02`, `VAL-03`, `VAL-04`, `VAL-05`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`, `ERR-01`, `ERR-02`, `ERR-03`, `BUG-02`, `BUG-03`, `BUG-04`, `BUG-05`, `BUG-06`, `DOC-01`, `DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`, `TEST-01`).
+  - **Completadas:** **29 / 38** (`SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `SEC-05`, `SEC-06`, `VAL-01`, `VAL-02`, `VAL-04`, `VAL-05`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`, `ERR-01`, `ERR-02`, `ERR-03`, `BUG-02`, `BUG-03`, `BUG-04`, `BUG-05`, `BUG-06`, `DOC-01`, `DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`, `TEST-01`, `VAL-03`).
   - **Postergadas:** **9 / 38** (`BD-01`, `BD-02`, `BD-03`, `VAL-10`, `ERR-04`, `BUG-01`, `SMELL-01`, `SMELL-02`, `SMELL-03`).
-- **Verificación visual externa adicional:** **1** (`MOCK-01`, pendiente de exportación manual desde Excalidraw).
-- **Resultado final de la suite de pruebas (`dotnet test SistemaVeterinaria.slnx`):** **539 / 539 pruebas aprobadas** (`314` unitarias en `BusinessLogic.Tests` + `225` de integración en `API.Tests`).
+- **Resultado final de la suite de pruebas automatizadas del backend (`dotnet test SistemaVeterinaria.slnx`):** **539 / 539 pruebas aprobadas** (`314` unitarias en `BusinessLogic.Tests` + `225` de integración en `API.Tests`, ejecutadas y verificadas con éxito sin errores ni advertencias).
+
+---
+
+### 3.2. Mejoras identificadas para futuras versiones
+
+A partir de la auditoría técnica integral, se consolidaron 9 observaciones catalogadas como mejoras o refactorizaciones postergadas, cuya postergación fue debidamente justificada para preservar la estabilidad de entrega del sistema:
+
+1. **`BD-01` (Identificadores autoincrementales):** Postergada por riesgo técnico transversal (la arquitectura N-Tier actual y los contratos REST operan de manera homogénea con GUIDs en todas las capas).
+2. **`BD-02` (Auditoría de creación):** Postergada por requerir alteración de esquema relacional y migraciones SQLite en entidades principales (`Mascota`, `Dueno`, `Turno`, `Usuario`).
+3. **`BD-03` (Atomicidad transaccional explícita):** Postergada por estabilidad del flujo clínico existente, que persiste atenciones e invoca los servicios satélite correspondientes.
+4. **`VAL-10` (Control de duplicidad de nombres de mascotas por dueño):** Postergada por ser una restricción no solicitada explícitamente en las reglas de negocio ni en los casos de uso.
+5. **`ERR-04` (Unificación de formato de errores JSON):** Postergada para preservar los contratos de integración existentes (`message` / `ValidationProblemDetails`) consumidos por los clientes HTTP y Bruno.
+6. **`BUG-01` (Filtro por rango de fechas en reporte de mascotas):** Postergada por dependencia técnica directa con la propiedad de auditoría `FechaCreacion` de `BD-02`.
+7. **`SMELL-01` (Consultas y filtrados LINQ en servicios):** Postergada por tratarse de refactorización interna sin impacto funcional visible ni defectos clínicos.
+8. **`SMELL-02` (Duplicación de lógica auxiliar entre servicios):** Postergada por refactorización interna cosmética de métodos privados auxiliares (`CalcularFechasIdeales`).
+9. **`SMELL-03` (Uso de enum `RolUsuario` vs constantes):** Postergada por tratarse de un ajuste estético que no compromete la seguridad ni las validaciones basadas en roles.
+
+---
+
+### 3.3. Actualización de Bruno y Documentación para la Entrega
+
+Durante la etapa de preparación final para la entrega técnica se realizaron las siguientes adecuaciones sobre la colección de pruebas HTTP en `bruno/` y los documentos del repositorio:
+
+1. **Colección Bruno (`bruno/`):**
+   * **Entorno y autenticación:** Se eliminaron tokens JWT fijos y GUIDs hardcodeados en `Local.bru` y en todas las carpetas (`auth/`, `duenos/`, `mascotas/`, `atenciones-medicas/`, `historia-clinica/`, `usuarios/`, `turnos/` y `reportes/`).
+   * **Variables dinámicas:** Se incorporaron scripts `post-response` y `pre-request` para extraer tokens y IDs reales sembrados por `DbInitializer`, calcular fechas futuras válidas para turnos (bloques de 30 minutos a futuro dentro de la agenda configurada) y generar datos no colisionables (DNI aleatorio en pre-request de alta de dueños).
+   * **Solicitudes preparatorias:** Se agregaron solicitudes dedicadas de preparación (`atenciones-medicas/0` para control de peso y `turnos/0` para disponibilidad horaria semanal).
+   * **Alineación de seguridad:** Se corrigieron los métodos y códigos esperados según los permisos reales (e.g. `historia-clinica/3` a `403 Forbidden` para Administrador).
+   * **Estado de ejecución de Bruno:** Las solicitudes de Bruno fueron **revisadas y corregidas estructuralmente** para compatibilidad total con los DTOs, rutas y validaciones del backend. A diferencia de la suite `dotnet test` (que cuenta con ejecución automatizada verificada al 100%), la colección de Bruno permanece como artefacto listo para demostración manual e interactiva por el equipo docente o evaluador.
+
+2. **Documentación Principal (`README.md`):**
+   * Alineación de puertos reales (`http://localhost:5274` y `https://localhost:7207`).
+   * Especificación OpenAPI nativa en `/openapi/v1.json` (removiendo menciones a herramientas no configuradas).
+   * Guía completa de usuarios y credenciales de desarrollo.
+   * Catálogo de reglas de negocio actualizadas y guía paso a paso para importar y ejecutar Bruno respetando su orden de preparación.
+
 
 

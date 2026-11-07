@@ -1,5 +1,5 @@
 meta {
-  name: 3. Consultar Historia Clinica como Administrador (200 OK)
+  name: 3. Consultar Historia Clinica - Acceso Denegado Rol Administrador (403 Forbidden)
   type: http
   seq: 3
 }
@@ -11,5 +11,5 @@ get {
 }
 
 auth:bearer {
-  token: {{adminToken}}
+  token: {{tokenAdministrador}}
 }

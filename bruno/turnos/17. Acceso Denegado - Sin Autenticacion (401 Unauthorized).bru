@@ -1,11 +1,20 @@
 meta {
   name: 17. Acceso Denegado - Sin Autenticacion (401 Unauthorized)
   type: http
-  seq: 17
+  seq: 18
 }
 
-get {
+post {
   url: {{baseUrl}}/api/turnos
-  body: none
+  body: json
   auth: none
+}
+
+body:json {
+  {
+    "mascotaId": "{{mascotaId}}",
+    "veterinarioId": "{{veterinarioId}}",
+    "fechaHora": "{{fechaTurnoValido}}",
+    "motivoConsulta": "Intento de agendar turno sin credenciales"
+  }
 }

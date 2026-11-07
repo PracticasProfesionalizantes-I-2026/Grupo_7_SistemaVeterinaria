@@ -5,7 +5,11 @@ meta {
 }
 
 delete {
-  url: {{baseUrl}}/api/duenos/00000000-0000-0000-0000-000000000000
+  url: {{baseUrl}}/api/duenos/{{duenoId}}
   body: none
-  auth: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenRecepcionista}}
 }
