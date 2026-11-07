@@ -8,6 +8,17 @@ namespace BusinessLogic.Services;
 
 public class TurnoService : ITurnoService
 {
+    private static readonly long TicksBloque30Minutos = TimeSpan.FromMinutes(30).Ticks;
+
+    private static readonly string[] EstadosTurnoValidos =
+    [
+        "Pendiente",
+        "Confirmado",
+        "EnAtencion",
+        "Finalizado",
+        "Cancelado"
+    ];
+
     private readonly ITurnoRepository _turnoRepository;
     private readonly IDisponibilidadVeterinarioRepository _disponibilidadRepository;
     private readonly IMascotaRepository _mascotaRepository;
@@ -38,6 +49,43 @@ public class TurnoService : ITurnoService
 
     public async Task<IEnumerable<TurnoResponseDTO>> GetAgendaAsync(AgendaFilterDTO filtro)
     {
+        if (filtro == null)
+        {
+            throw new ValidationException("Los parámetros de filtro de la agenda son inválidos.");
+        }
+
+        string? estadoNormalizado = null;
+        if (!string.IsNullOrWhiteSpace(filtro.Estado))
+        {
+            var estadoBuscado = filtro.Estado.Trim();
+            estadoNormalizado = EstadosTurnoValidos.FirstOrDefault(
+                e => string.Equals(e, estadoBuscado, StringComparison.OrdinalIgnoreCase));
+
+            if (estadoNormalizado == null)
+            {
+                throw new ValidationException("El estado filtrado no es válido. Los valores permitidos son: Pendiente, Confirmado, EnAtencion, Finalizado, Cancelado.");
+            }
+        }
+
+        if (filtro.VeterinarioId.HasValue)
+        {
+            if (filtro.VeterinarioId.Value == Guid.Empty)
+            {
+                throw new ValidationException("El identificador del veterinario filtrado no es válido.");
+            }
+
+            var veterinario = await _usuarioRepository.GetByIdAsync(filtro.VeterinarioId.Value);
+            if (veterinario == null || veterinario.Rol != "Veterinario" || !veterinario.Activo)
+            {
+                throw new VeterinarioNotFoundException(filtro.VeterinarioId.Value);
+            }
+        }
+
+        if (filtro.MascotaId.HasValue && filtro.MascotaId.Value == Guid.Empty)
+        {
+            throw new ValidationException("El identificador de la mascota filtrada no es válido.");
+        }
+
         DateTime? fechaDesde = null;
         DateTime? fechaHasta = null;
 
@@ -47,9 +95,9 @@ public class TurnoService : ITurnoService
             fechaHasta = filtro.Fecha.Value.Date.AddDays(1).AddTicks(-1);
         }
 
-        var turnos = await _turnoRepository.GetAgendaAsync(fechaDesde, fechaHasta, filtro.VeterinarioId, filtro.Estado);
+        var turnos = await _turnoRepository.GetAgendaAsync(fechaDesde, fechaHasta, filtro.VeterinarioId, estadoNormalizado);
 
-        if (filtro.MascotaId.HasValue && filtro.MascotaId.Value != Guid.Empty)
+        if (filtro.MascotaId.HasValue)
         {
             turnos = turnos.Where(t => t.MascotaId == filtro.MascotaId.Value);
         }
@@ -139,6 +187,18 @@ public class TurnoService : ITurnoService
         if (turno.Estado == "Cancelado")
         {
             throw new TurnoYaCanceladoException("No se puede reprogramar un turno cancelado.");
+        }
+
+        // RN-07 y CU-06 (flujo 3e): Validar que la mascota asociada exista y se encuentre activa
+        var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
+        if (mascota == null)
+        {
+            throw new MascotaNotFoundException(turno.MascotaId);
+        }
+
+        if (!mascota.Activa)
+        {
+            throw new MascotaInactivaException(turno.MascotaId);
         }
 
         var targetVetId = dto.VeterinarioId ?? turno.VeterinarioId;
@@ -252,30 +312,46 @@ public class TurnoService : ITurnoService
             throw new VeterinarioNotFoundException(veterinarioId);
         }
 
-        if (dto.Disponibilidades == null || !dto.Disponibilidades.Any())
+        if (dto == null || dto.Disponibilidades == null || !dto.Disponibilidades.Any())
         {
             throw new ValidationException("Debe configurar al menos un horario de disponibilidad.");
         }
 
         // Validaciones de rangos y no superposición interna
         var entidades = new List<DisponibilidadVeterinario>();
-        foreach (var item in dto.Disponibilidades)
+        for (var i = 0; i < dto.Disponibilidades.Count; i++)
         {
+            var item = dto.Disponibilidades[i];
+            if (item == null)
+            {
+                throw new DisponibilidadInvalidaException("El bloque de disponibilidad horaria no puede ser nulo.");
+            }
+
+            if (!Enum.IsDefined(typeof(DayOfWeek), item.DiaSemana))
+            {
+                throw new DisponibilidadInvalidaException("El día de la semana especificado no es válido.");
+            }
+
+            var jornada = NormalizarYValidarJornadaDisponibilidad(item.Jornada);
+
+            if (item.HoraInicio < TimeSpan.Zero || item.HoraFin > TimeSpan.FromHours(24))
+            {
+                throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben encontrarse dentro del día (entre 00:00 y 24:00).");
+            }
+
             if (item.HoraInicio >= item.HoraFin)
             {
                 throw new DisponibilidadInvalidaException("La hora de inicio debe ser anterior a la hora de fin.");
             }
 
-            var jornada = item.Jornada.Trim();
-            if (!string.Equals(jornada, "Manana", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(jornada, "Tarde", StringComparison.OrdinalIgnoreCase))
+            if (!EsBloqueHorarioDe30MinutosValido(item.HoraInicio) || !EsBloqueHorarioDe30MinutosValido(item.HoraFin))
             {
-                throw new DisponibilidadInvalidaException("La jornada debe ser 'Manana' o 'Tarde'.");
+                throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben estar alineados a bloques exactos de 30 minutos (:00 o :30), sin segundos ni fracciones.");
             }
 
             // Chequeo de superposición dentro del mismo día
             var superpuesto = dto.Disponibilidades
-                .Where(other => other != item && other.DiaSemana == item.DiaSemana)
+                .Where((other, j) => j != i && other != null && other.DiaSemana == item.DiaSemana)
                 .Any(other => item.HoraInicio < other.HoraFin && item.HoraFin > other.HoraInicio);
 
             if (superpuesto)
@@ -536,6 +612,32 @@ public class TurnoService : ITurnoService
         {
             throw new ValidationException("Los turnos deben agendarse en bloques fijos de 30 minutos (:00 o :30).");
         }
+    }
+
+    private static string NormalizarYValidarJornadaDisponibilidad(string? jornada)
+    {
+        if (string.IsNullOrWhiteSpace(jornada))
+        {
+            throw new DisponibilidadInvalidaException("La jornada es obligatoria y debe ser 'Manana' o 'Tarde'.");
+        }
+
+        var trimmed = jornada.Trim();
+        if (string.Equals(trimmed, "Manana", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Manana";
+        }
+
+        if (string.Equals(trimmed, "Tarde", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Tarde";
+        }
+
+        throw new DisponibilidadInvalidaException("La jornada debe ser 'Manana' o 'Tarde'.");
+    }
+
+    private static bool EsBloqueHorarioDe30MinutosValido(TimeSpan horario)
+    {
+        return horario.Ticks % TicksBloque30Minutos == 0;
     }
 
     private static TurnoResponseDTO MapToResponseDTO(Turno turno)

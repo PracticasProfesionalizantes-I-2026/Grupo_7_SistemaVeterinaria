@@ -23,7 +23,7 @@
 Permite al veterinario consultar la historia clínica completa de una mascota registrada en el sistema, visualizando sus datos generales —incluyendo la fecha de última visita correspondiente a la atención médica más reciente registrada o «Sin visitas registradas» si aún no posee atenciones—, resumen clínico, antecedentes, atenciones médicas previas (incluyendo los procedimientos quirúrgicos realizados, si los hubiere), registro de vacunas aplicadas, prescripciones farmacológicas y estudios complementarios asociados. La información se presenta de forma integrada en el expediente del paciente, sin secciones ni módulos quirúrgicos independientes y con campos estrictamente de solo lectura.
 
 ### 2. PRECONDICIONES
-- El veterinario debe haber iniciado sesión y poseer un Token JWT válido con rol de `Veterinario` o `Administrador`.
+- El veterinario debe haber iniciado sesión y poseer un Token JWT válido con rol exclusivo de `Veterinario` (los roles `Recepcionista` y `Administrador` no poseen permisos para consultar historias clínicas ni atenciones médicas).
 - La mascota debe estar registrada en el sistema y asociada a un dueño.
 - Debe existir el registro de historia clínica vinculado a la mascota.
 
@@ -76,6 +76,8 @@ Permite al veterinario consultar la historia clínica completa de una mascota re
 | --- | --- | --- |
 | `200` | OK | Retorno exitoso de los datos completos de la historia clínica. |
 | `400` | Bad Request | Formato de identificador o parámetros de búsqueda inválidos. |
+| `401` | Unauthorized | Falta de autenticación o token JWT inválido/expirado. |
+| `403` | Forbidden | Acceso denegado: rol insuficiente (`Recepcionista` o `Administrador`; requiere rol `Veterinario`). |
 | `404` | Not Found | Mascota o historia clínica inexistente en el sistema. |
 | `500` | Internal Server Error | Error no controlado en la consulta a la base de datos. |
 

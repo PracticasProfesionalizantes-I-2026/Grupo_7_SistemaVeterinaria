@@ -26,7 +26,7 @@ public class MascotaCreateDTO
     [Required(ErrorMessage = "La fecha de nacimiento es obligatoria.")]
     public DateTime FechaNacimiento { get; set; }
 
-    [Range(0.01, 1000.00, ErrorMessage = "El peso de la mascota debe ser mayor a 0 kg.")]
+    [Range(0.05, 200.00, ErrorMessage = "El peso de la mascota debe estar entre 0.05 kg y 200 kg.")]
     public decimal Peso { get; set; }
 
     [MaxLength(500, ErrorMessage = "Las observaciones no pueden superar los 500 caracteres.")]

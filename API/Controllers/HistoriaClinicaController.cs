@@ -8,7 +8,7 @@ namespace API.Controllers;
 
 [ApiController]
 [Route("api/historias-clinicas")]
-[Authorize(Roles = "Veterinario,Administrador")]
+[Authorize(Roles = "Veterinario")]
 public class HistoriaClinicaController : ControllerBase
 {
     private readonly IHistoriaClinicaService _historiaClinicaService;

@@ -72,14 +72,138 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     }
 
     [Fact]
-    public async Task GetAll_Retorna200OkYListaDeAtenciones()
+    public async Task GetAll_ConRolVeterinario_Retorna200OkYListaDeAtenciones()
     {
+        await AutenticarComoVeterinarioAsync();
+
         var response = await _client.GetAsync("/api/atenciones-medicas");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var atenciones = await response.Content.ReadFromJsonAsync<List<AtencionMedicaResponseDTO>>();
         Assert.NotNull(atenciones);
         Assert.True(atenciones.Count >= 2); // Sembradas por DbInitializer
+    }
+
+    [Fact]
+    public async Task GetAll_SinToken_Retorna401Unauthorized()
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await _client.GetAsync("/api/atenciones-medicas");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_ConRolRecepcionista_Retorna403Forbidden()
+    {
+        await AutenticarComoRecepcionistaAsync();
+
+        var response = await _client.GetAsync("/api/atenciones-medicas");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_ConRolAdministrador_Retorna403Forbidden()
+    {
+        await AutenticarComoAdminAsync();
+
+        var response = await _client.GetAsync("/api/atenciones-medicas");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_Existente_ConRolVeterinario_Retorna200Ok()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var atenciones = await _client.GetFromJsonAsync<List<AtencionMedicaResponseDTO>>("/api/atenciones-medicas");
+        var primera = atenciones!.First();
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/{primera.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var obtenida = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(obtenida);
+        Assert.Equal(primera.Id, obtenida.Id);
+    }
+
+    [Fact]
+    public async Task GetById_SinToken_Retorna401Unauthorized()
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_ConRolRecepcionista_Retorna403Forbidden()
+    {
+        await AutenticarComoRecepcionistaAsync();
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_ConRolAdministrador_Retorna403Forbidden()
+    {
+        await AutenticarComoAdminAsync();
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByMascotaId_ConRolVeterinario_Retorna200Ok()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo");
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/mascota/{milo.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var atenciones = await response.Content.ReadFromJsonAsync<List<AtencionMedicaResponseDTO>>();
+        Assert.NotNull(atenciones);
+        Assert.NotEmpty(atenciones);
+    }
+
+    [Fact]
+    public async Task GetByMascotaId_SinToken_Retorna401Unauthorized()
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/mascota/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByMascotaId_ConRolRecepcionista_Retorna403Forbidden()
+    {
+        await AutenticarComoRecepcionistaAsync();
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/mascota/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByMascotaId_ConRolAdministrador_Retorna403Forbidden()
+    {
+        await AutenticarComoAdminAsync();
+
+        var response = await _client.GetAsync($"/api/atenciones-medicas/mascota/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -149,6 +273,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Vacunación quíntuple",
+            Anamnesis = "Control anual sin síntomas previos",
+            ExamenFisico = "Mucosas rosadas, temperatura y auscultación normales",
             Diagnostico = "Paciente en óptimas condiciones",
             Tratamiento = "Vacuna aplicada",
             PesoRegistrado = 28.5m,
@@ -163,8 +289,256 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
         Assert.NotNull(creada);
         Assert.Equal(milo.Id, creada.MascotaId);
+        Assert.Equal("Control anual sin síntomas previos", creada.Anamnesis);
+        Assert.Equal("Mucosas rosadas, temperatura y auscultación normales", creada.ExamenFisico);
         Assert.Equal("Quíntuple Canina", creada.VacunaAplicada);
         Assert.NotEqual(Guid.Empty, creada.VeterinarioId);
+    }
+
+    [Fact]
+    public async Task Create_VacunacionConFechaProximaDosisFuturaValida_Retorna201CreatedYPersisteVacunacion()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+        var proximaDosis = DateTime.UtcNow.Date.AddDays(30);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Vacunación con refuerzo programado",
+            Anamnesis = "Control sanitario anual",
+            ExamenFisico = "Constantes fisiológicas dentro de parámetros normales",
+            Diagnostico = "Apto para inmunización",
+            Tratamiento = "Aplicación de vacuna séxtuple",
+            PesoRegistrado = 28.5m,
+            EvaluacionAptitud = new EvaluacionAptitudVacunacionCreateDTO
+            {
+                SinFiebre = true,
+                BuenEstadoGeneral = true,
+                SinEnfermedadInfecciosaAguda = true,
+                AutorizacionVeterinaria = true
+            },
+            Vacunacion = new VacunacionCreateDTO
+            {
+                Vacuna = "Séxtuple Canina",
+                Dosis = "1 ml subcutánea",
+                Lote = "LOTE-2026-S6",
+                FechaProximaDosis = proximaDosis
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.NotNull(creada.Vacunacion);
+        Assert.Equal("Séxtuple Canina", creada.Vacunacion!.Vacuna);
+        Assert.Equal("1 ml subcutánea", creada.Vacunacion.Dosis);
+        Assert.Equal("LOTE-2026-S6", creada.Vacunacion.Lote);
+        Assert.Equal(proximaDosis, creada.Vacunacion.FechaProximaDosis);
+    }
+
+    [Theory]
+    [InlineData(-30)]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public async Task Create_VacunacionConFechaProximaDosisPasadaOHoy_Retorna400BadRequestYSinPersistir(int diasOffset)
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Vacunación con fecha próxima dosis inválida",
+            Anamnesis = "Control sanitario",
+            ExamenFisico = "Examen normal",
+            Diagnostico = "Apto",
+            Tratamiento = "Vacuna",
+            PesoRegistrado = 28.5m,
+            EvaluacionAptitud = new EvaluacionAptitudVacunacionCreateDTO
+            {
+                SinFiebre = true,
+                BuenEstadoGeneral = true,
+                SinEnfermedadInfecciosaAguda = true,
+                AutorizacionVeterinaria = true
+            },
+            Vacunacion = new VacunacionCreateDTO
+            {
+                Vacuna = "Antirrábica",
+                Dosis = "1 ml",
+                Lote = "L-2026",
+                FechaProximaDosis = DateTime.UtcNow.Date.AddDays(diasOffset)
+            }
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
+    }
+
+    [Fact]
+    public async Task Create_VacunacionIncompletaOCamposExcedenMaxLength_Retorna400BadRequestYSinPersistir()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
+        // 1. Vacunación incompleta (sin nombre de vacuna pero con lote y próxima dosis)
+        var dtoVacunaIncompleta = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis normal",
+            ExamenFisico = "Examen físico normal",
+            Diagnostico = "Sano",
+            Tratamiento = "Control",
+            PesoRegistrado = 28.5m,
+            EvaluacionAptitud = new EvaluacionAptitudVacunacionCreateDTO
+            {
+                SinFiebre = true,
+                BuenEstadoGeneral = true,
+                SinEnfermedadInfecciosaAguda = true,
+                AutorizacionVeterinaria = true
+            },
+            Vacunacion = new VacunacionCreateDTO
+            {
+                Vacuna = "   ",
+                Lote = "LOTE-SIN-VACUNA",
+                FechaProximaDosis = DateTime.UtcNow.Date.AddDays(30)
+            }
+        };
+
+        var respIncompleta = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoVacunaIncompleta);
+        Assert.Equal(HttpStatusCode.BadRequest, respIncompleta.StatusCode);
+
+        // 2. Campo clínico que supera MaxLength
+        var dtoExcesoLongitud = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = new string('M', 251),
+            Anamnesis = "Anamnesis normal",
+            ExamenFisico = "Examen físico normal",
+            Diagnostico = "Sano",
+            Tratamiento = "Control",
+            PesoRegistrado = 28.5m
+        };
+
+        var respExceso = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoExcesoLongitud);
+        Assert.Equal(HttpStatusCode.BadRequest, respExceso.StatusCode);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
+    }
+
+    [Theory]
+    [InlineData("", "Examen físico normal")]
+    [InlineData("   ", "Examen físico normal")]
+    [InlineData("Anamnesis clínica válida", "")]
+    [InlineData("Anamnesis clínica válida", "   ")]
+    public async Task Create_AnamnesisOExamenFisicoVaciosOSoloEspacios_Retorna400BadRequestYSinPersistir(
+        string anamnesis, string examenFisico)
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Consulta clínica",
+            Anamnesis = anamnesis,
+            ExamenFisico = examenFisico,
+            Diagnostico = "Diagnóstico clínico",
+            Tratamiento = "Tratamiento indicado",
+            PesoRegistrado = 28.5m
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
+    }
+
+    [Fact]
+    public async Task Create_SinAnamnesisNiExamenFisicoEnJson_Retorna400BadRequestYSinPersistir()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
+        var payloadIncompleto = new
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Consulta sin anamnesis ni examen físico",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 28.5m
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", payloadIncompleto);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
     }
 
     [Fact]
@@ -180,6 +554,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = rocky.Id,
             MotivoConsulta = "Consulta",
+            Anamnesis = "Anamnesis clínica",
+            ExamenFisico = "Examen físico",
             Diagnostico = "Diagnóstico",
             Tratamiento = "Tratamiento",
             PesoRegistrado = 32.0m,
@@ -200,6 +576,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = Guid.NewGuid(),
             MotivoConsulta = "Consulta",
+            Anamnesis = "Anamnesis clínica",
+            ExamenFisico = "Examen físico",
             Diagnostico = "Diagnóstico",
             Tratamiento = "Tratamiento",
             PesoRegistrado = 10.0m
@@ -209,25 +587,47 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    [Fact]
-    public async Task Create_PesoCeroONegativo_Retorna400BadRequest()
+    [Theory]
+    [InlineData(-2.0)]
+    [InlineData(0.0)]
+    [InlineData(0.04)]
+    [InlineData(200.01)]
+    [InlineData(500.0)]
+    [InlineData(28.125)]
+    public async Task Create_PesoFueraDeRangoOMasDeDosDecimales_Retorna400BadRequestYSinPersistir(decimal pesoInvalido)
     {
         await AutenticarComoVeterinarioAsync();
 
         var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
         var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
 
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
         var dto = new AtencionMedicaCreateDTO
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Consulta",
+            Anamnesis = "Anamnesis clínica",
+            ExamenFisico = "Examen físico",
             Diagnostico = "Diagnóstico",
             Tratamiento = "Tratamiento",
-            PesoRegistrado = -2.0m
+            PesoRegistrado = pesoInvalido
         };
 
         var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
     }
 
     [Fact]
@@ -243,6 +643,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Vacunación",
+            Anamnesis = "Decaimiento desde hace 12 horas",
+            ExamenFisico = "Temperatura rectal 39.9°C",
             Diagnostico = "Fiebre alta",
             Tratamiento = "Antipirético",
             PesoRegistrado = 28.5m,
@@ -268,6 +670,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Pérdida de apetito",
+            Anamnesis = "Come menos hace dos semanas",
+            ExamenFisico = "Pérdida de masa muscular leve",
             Diagnostico = "Decaimiento general",
             Tratamiento = "Dieta balanceada",
             PesoRegistrado = 24.0m
@@ -286,6 +690,36 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     }
 
     [Fact]
+    public async Task Create_AumentoDePeso_RegistraPorcentajeDisminucionCeroYSinAlerta()
+    {
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var luna = mascotas!.First(m => m.Nombre == "Luna" && m.Activa);
+
+        // Luna aumenta de peso respecto a su referencia previa (~4.2 kg -> 5.0 kg)
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = luna.Id,
+            MotivoConsulta = "Control nutricional",
+            Anamnesis = "Buen apetito",
+            ExamenFisico = "Aumento saludable de peso",
+            Diagnostico = "Paciente sano",
+            Tratamiento = "Control anual",
+            PesoRegistrado = 5.00m
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.False(creada.AlertaDesnutricion);
+        Assert.Equal(0m, creada.PorcentajeDisminucionPeso);
+        Assert.Null(creada.MensajeAlertaDesnutricion);
+    }
+
+    [Fact]
     public async Task Create_ChecklistNoAptoSinVacuna_Retorna201CreatedConMotivoClinico()
     {
         await AutenticarComoVeterinarioAsync();
@@ -297,6 +731,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Evaluación para vacuna",
+            Anamnesis = "Hiporexia y decaimiento",
+            ExamenFisico = "Hipertermia 40.1°C, mucosas congestivas",
             Diagnostico = "Fiebre persistente",
             Tratamiento = "Medicación antipirética",
             PesoRegistrado = 28.5m,
@@ -389,6 +825,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Consulta de control dermatológico",
+            Anamnesis = "Prurito controlado con baños medicados",
+            ExamenFisico = "Piel sin lesiones activas ni eritema",
             Diagnostico = "Dermatitis atópica controlada",
             Tratamiento = "Champú hipoalergénico semanal",
             PesoRegistrado = 28.5m
@@ -415,6 +853,8 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         {
             MascotaId = milo.Id,
             MotivoConsulta = "Control periódico de enfermedad crónica",
+            Anamnesis = "Control cardiológico de rutina sin síncopes",
+            ExamenFisico = "Frecuencia cardíaca estable, mucosas rosadas",
             Diagnostico = "Cardiopatía dilatada canina",
             Tratamiento = "Enalapril y chequeos mensuales",
             PesoRegistrado = 28.5m,
@@ -508,26 +948,190 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
     }
 
     [Fact]
-    public async Task Update_Retorna409Conflict_PorInmutabilidad()
+    public async Task Update_ConRolVeterinario_Retorna409Conflict_PorInmutabilidad_SinModificarDatos()
     {
         // RN-01: Inmutabilidad de las atenciones médicas
-        var atenciones = await _client.GetFromJsonAsync<List<AtencionMedicaResponseDTO>>("/api/atenciones-medicas");
-        var atencion = atenciones!.First();
+        await AutenticarComoVeterinarioAsync();
 
-        var response = await _client.PutAsync($"/api/atenciones-medicas/{atencion.Id}", null);
+        var atenciones = await _client.GetFromJsonAsync<List<AtencionMedicaResponseDTO>>("/api/atenciones-medicas");
+        var original = atenciones!.First();
+
+        var response = await _client.PutAsync($"/api/atenciones-medicas/{original.Id}", null);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        // Comprobar que el registro médico permanece intacto
+        var postIntento = await _client.GetFromJsonAsync<AtencionMedicaResponseDTO>($"/api/atenciones-medicas/{original.Id}");
+        Assert.NotNull(postIntento);
+        Assert.Equal(original.Id, postIntento.Id);
+        Assert.Equal(original.Diagnostico, postIntento.Diagnostico);
+        Assert.Equal(original.Tratamiento, postIntento.Tratamiento);
+        Assert.Equal(original.PesoRegistrado, postIntento.PesoRegistrado);
     }
 
     [Fact]
-    public async Task Delete_Retorna409Conflict_PorInmutabilidad()
+    public async Task Update_SinToken_Retorna401Unauthorized()
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await _client.PutAsync($"/api/atenciones-medicas/{Guid.NewGuid()}", null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ConRolRecepcionista_Retorna403Forbidden()
+    {
+        await AutenticarComoRecepcionistaAsync();
+
+        var response = await _client.PutAsync($"/api/atenciones-medicas/{Guid.NewGuid()}", null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_ConRolAdministrador_Retorna403Forbidden()
+    {
+        await AutenticarComoAdminAsync();
+
+        var response = await _client.PutAsync($"/api/atenciones-medicas/{Guid.NewGuid()}", null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_ConRolVeterinario_Retorna409Conflict_PorInmutabilidad_SinEliminarDatos()
     {
         // RN-01: Inmutabilidad de las atenciones médicas
-        var atenciones = await _client.GetFromJsonAsync<List<AtencionMedicaResponseDTO>>("/api/atenciones-medicas");
-        var atencion = atenciones!.First();
+        await AutenticarComoVeterinarioAsync();
 
-        var response = await _client.DeleteAsync($"/api/atenciones-medicas/{atencion.Id}");
+        var atenciones = await _client.GetFromJsonAsync<List<AtencionMedicaResponseDTO>>("/api/atenciones-medicas");
+        var original = atenciones!.First();
+
+        var response = await _client.DeleteAsync($"/api/atenciones-medicas/{original.Id}");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        // Comprobar que el registro médico no fue eliminado y permanece intacto
+        var getResponse = await _client.GetAsync($"/api/atenciones-medicas/{original.Id}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        var conservada = await getResponse.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(conservada);
+        Assert.Equal(original.Id, conservada.Id);
+        Assert.Equal(original.Diagnostico, conservada.Diagnostico);
+    }
+
+    [Fact]
+    public async Task Delete_SinToken_Retorna401Unauthorized()
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        var response = await _client.DeleteAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_ConRolRecepcionista_Retorna403Forbidden()
+    {
+        await AutenticarComoRecepcionistaAsync();
+
+        var response = await _client.DeleteAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_ConRolAdministrador_Retorna403Forbidden()
+    {
+        await AutenticarComoAdminAsync();
+
+        var response = await _client.DeleteAsync($"/api/atenciones-medicas/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_IncoherenciaEntreEsEnfermedadCronicaYSeguimientoCronico_Retorna400BadRequest_SinPersistir()
+    {
+        // Arrange (BUG-06)
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int totalAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            totalAntes = await dbAntes.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+        }
+
+        // Caso 1: EsEnfermedadCronica = true pero SeguimientoCronico = null
+        var dtoSinSeguimiento = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Control crónico",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Patología crónica",
+            Tratamiento = "Tratamiento crónico",
+            PesoRegistrado = 28.5m,
+            EsEnfermedadCronica = true,
+            SeguimientoCronico = null
+        };
+
+        var res1 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoSinSeguimiento);
+        Assert.Equal(HttpStatusCode.BadRequest, res1.StatusCode);
+
+        // Caso 2: EsEnfermedadCronica = false pero SeguimientoCronico != null
+        var dtoContradictorio = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Control agudo",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Cuadro agudo",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 28.5m,
+            EsEnfermedadCronica = false,
+            SeguimientoCronico = new SeguimientoCronicoCreateDTO
+            {
+                Frecuencia = "Mensual",
+                JornadaPreferida = "Manana"
+            }
+        };
+
+        var res2 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoContradictorio);
+        Assert.Equal(HttpStatusCode.BadRequest, res2.StatusCode);
+
+        // Verificar que ninguna atención inválida fue persistida
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var totalDespues = await dbDespues.AtencionesMedicas.CountAsync(a => a.MascotaId == milo.Id);
+            Assert.Equal(totalAntes, totalDespues);
+        }
+
+        // Caso 3: EsEnfermedadCronica = true con SeguimientoCronico válido -> 201 Created
+        var dtoValidoConTrue = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = "Control crónico válido",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Patología crónica",
+            Tratamiento = "Tratamiento crónico",
+            PesoRegistrado = 28.5m,
+            EsEnfermedadCronica = true,
+            SeguimientoCronico = new SeguimientoCronicoCreateDTO
+            {
+                Frecuencia = "  Mensual  ",
+                JornadaPreferida = "  Manana  "
+            }
+        };
+
+        var res3 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoValidoConTrue);
+        Assert.Equal(HttpStatusCode.Created, res3.StatusCode);
     }
 }

@@ -102,14 +102,21 @@ public class AtencionMedicaService : IAtencionMedicaService
         if (pesoReferenciaUtilizado.HasValue && pesoReferenciaUtilizado.Value > 0)
         {
             var disminucion = pesoReferenciaUtilizado.Value - dto.PesoRegistrado;
-            var porcentaje = (disminucion / pesoReferenciaUtilizado.Value) * 100m;
-            porcentajeDisminucionPeso = Math.Round(porcentaje, 2);
-
-            // Activación estricta cuando la disminución es estrictamente superior al 10 %
-            if (porcentaje > 10.0m)
+            if (disminucion > 0)
             {
-                alertaDesnutricion = true;
-                mensajeAlertaDesnutricion = $"Alerta clínica de desnutrición: Disminución de peso del {porcentajeDisminucionPeso}% estrictamente superior al 10% respecto al peso de referencia de {pesoReferenciaUtilizado.Value:F2} kg.";
+                var porcentaje = (disminucion / pesoReferenciaUtilizado.Value) * 100m;
+                porcentajeDisminucionPeso = Math.Round(porcentaje, 2);
+
+                // Activación estricta cuando la disminución es estrictamente superior al 10 %
+                if (porcentaje > 10.0m)
+                {
+                    alertaDesnutricion = true;
+                    mensajeAlertaDesnutricion = $"Alerta clínica de desnutrición: Disminución de peso del {porcentajeDisminucionPeso}% estrictamente superior al 10% respecto al peso de referencia de {pesoReferenciaUtilizado.Value:F2} kg.";
+                }
+            }
+            else
+            {
+                porcentajeDisminucionPeso = 0m;
             }
         }
 
@@ -165,8 +172,8 @@ public class AtencionMedicaService : IAtencionMedicaService
             VeterinarioId = veterinarioId,
             Fecha = DateTime.UtcNow,
             MotivoConsulta = dto.MotivoConsulta.Trim(),
-            Anamnesis = string.IsNullOrWhiteSpace(dto.Anamnesis) ? "Evaluación general del paciente." : dto.Anamnesis.Trim(),
-            ExamenFisico = string.IsNullOrWhiteSpace(dto.ExamenFisico) ? "Constantes vitales dentro de parámetros normales." : dto.ExamenFisico.Trim(),
+            Anamnesis = dto.Anamnesis.Trim(),
+            ExamenFisico = dto.ExamenFisico.Trim(),
             Diagnostico = dto.Diagnostico.Trim(),
             Tratamiento = dto.Tratamiento.Trim(),
             PesoRegistrado = dto.PesoRegistrado,
@@ -180,15 +187,15 @@ public class AtencionMedicaService : IAtencionMedicaService
             // Vacunación y Aptitud Clínica
             EsAptoVacunacion = esApto,
             AptitudVacunacionResultado = aptitudResultado,
-            MotivoNoAptoVacunacion = motivoNoApto,
+            MotivoNoAptoVacunacion = string.IsNullOrWhiteSpace(motivoNoApto) ? null : motivoNoApto.Trim(),
             SinFiebre = sinFiebre,
             BuenEstadoGeneral = buenEstado,
             SinEnfermedadInfecciosaAguda = sinInfeccion,
             AutorizacionVeterinaria = autorizacion,
             VacunaAplicada = solicitaVacuna ? vacunaNombre : null,
-            VacunaDosis = dto.Vacunacion?.Dosis?.Trim(),
-            VacunaLote = dto.Vacunacion?.Lote?.Trim(),
-            VacunaProximaDosis = dto.Vacunacion?.FechaProximaDosis
+            VacunaDosis = solicitaVacuna && !string.IsNullOrWhiteSpace(dto.Vacunacion?.Dosis) ? dto.Vacunacion.Dosis.Trim() : null,
+            VacunaLote = solicitaVacuna && !string.IsNullOrWhiteSpace(dto.Vacunacion?.Lote) ? dto.Vacunacion.Lote.Trim() : null,
+            VacunaProximaDosis = solicitaVacuna ? dto.Vacunacion?.FechaProximaDosis : null
         };
 
         // Procedimiento quirúrgico (INF-06)
@@ -254,8 +261,8 @@ public class AtencionMedicaService : IAtencionMedicaService
                     VeterinarioId = veterinarioId ?? atencionCreada.VeterinarioId ?? Guid.Empty,
                     AtencionMedicaId = atencionCreada.Id,
                     FechaAtencion = atencionCreada.Fecha,
-                    Frecuencia = dto.SeguimientoCronico.Frecuencia,
-                    JornadaPreferida = dto.SeguimientoCronico.JornadaPreferida
+                    Frecuencia = dto.SeguimientoCronico.Frecuencia.Trim(),
+                    JornadaPreferida = dto.SeguimientoCronico.JornadaPreferida.Trim()
                 };
 
                 // 1. Verificación tipada e inequívoca de disponibilidad configurada antes de generar turnos
@@ -373,17 +380,69 @@ public class AtencionMedicaService : IAtencionMedicaService
             throw new ValidationException("El identificador de la mascota es obligatorio.");
         if (string.IsNullOrWhiteSpace(dto.MotivoConsulta))
             throw new ValidationException("El motivo de consulta es obligatorio.");
+        if (dto.MotivoConsulta.Trim().Length > 250)
+            throw new ValidationException("El motivo de consulta no puede superar los 250 caracteres.");
+
         if (string.IsNullOrWhiteSpace(dto.Diagnostico))
             throw new ValidationException("El diagnóstico médico es obligatorio.");
+        if (dto.Diagnostico.Trim().Length > 1000)
+            throw new ValidationException("El diagnóstico no puede superar los 1000 caracteres.");
+
         if (string.IsNullOrWhiteSpace(dto.Tratamiento))
             throw new ValidationException("El tratamiento médico es obligatorio.");
-        if (dto.PesoRegistrado <= 0)
-            throw new ValidationException("El peso registrado de la mascota es obligatorio y debe ser mayor a cero.");
+        if (dto.Tratamiento.Trim().Length > 1000)
+            throw new ValidationException("El tratamiento no puede superar los 1000 caracteres.");
 
-        if (dto.Anamnesis != null && string.IsNullOrWhiteSpace(dto.Anamnesis))
-            throw new ValidationException("La anamnesis clínica no puede contener únicamente espacios en blanco.");
-        if (dto.ExamenFisico != null && string.IsNullOrWhiteSpace(dto.ExamenFisico))
-            throw new ValidationException("El examen físico no puede contener únicamente espacios en blanco.");
+        if (dto.PesoRegistrado < 0.05m || dto.PesoRegistrado > 200.00m)
+            throw new ValidationException("El peso registrado de la mascota debe estar entre 0.05 kg y 200 kg.");
+        if (decimal.Round(dto.PesoRegistrado, 2) != dto.PesoRegistrado)
+            throw new ValidationException("El peso registrado de la mascota admite como máximo 2 decimales.");
+
+        if (string.IsNullOrWhiteSpace(dto.Anamnesis))
+            throw new ValidationException("La anamnesis clínica es obligatoria.");
+        if (dto.Anamnesis.Trim().Length > 2000)
+            throw new ValidationException("La anamnesis no puede superar los 2000 caracteres.");
+
+        if (string.IsNullOrWhiteSpace(dto.ExamenFisico))
+            throw new ValidationException("El examen físico es obligatorio.");
+        if (dto.ExamenFisico.Trim().Length > 2000)
+            throw new ValidationException("El examen físico no puede superar los 2000 caracteres.");
+
+        if (!string.IsNullOrWhiteSpace(dto.Observaciones) && dto.Observaciones.Trim().Length > 500)
+            throw new ValidationException("Las observaciones no pueden superar los 500 caracteres.");
+
+        // Validar evaluación de aptitud si fue provista
+        if (dto.EvaluacionAptitud != null &&
+            !string.IsNullOrWhiteSpace(dto.EvaluacionAptitud.MotivoNoApto) &&
+            dto.EvaluacionAptitud.MotivoNoApto.Trim().Length > 500)
+        {
+            throw new ValidationException("El motivo de no aptitud no puede superar los 500 caracteres.");
+        }
+
+        // Validar vacunación si fue provista (VAL-06)
+        if (!string.IsNullOrWhiteSpace(dto.VacunaAplicada) && dto.VacunaAplicada.Trim().Length > 100)
+            throw new ValidationException("El nombre de la vacuna no puede superar los 100 caracteres.");
+
+        if (dto.Vacunacion != null)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Vacunacion.Vacuna))
+                throw new ValidationException("El nombre de la vacuna es obligatorio.");
+
+            if (dto.Vacunacion.Vacuna.Trim().Length > 100)
+                throw new ValidationException("El nombre de la vacuna no puede superar los 100 caracteres.");
+
+            if (!string.IsNullOrWhiteSpace(dto.Vacunacion.Dosis) && dto.Vacunacion.Dosis.Trim().Length > 50)
+                throw new ValidationException("La dosis no puede superar los 50 caracteres.");
+
+            if (!string.IsNullOrWhiteSpace(dto.Vacunacion.Lote) && dto.Vacunacion.Lote.Trim().Length > 50)
+                throw new ValidationException("El lote no puede superar los 50 caracteres.");
+
+            if (dto.Vacunacion.FechaProximaDosis.HasValue &&
+                dto.Vacunacion.FechaProximaDosis.Value.Date <= DateTime.UtcNow.Date)
+            {
+                throw new ValidationException("La fecha de próxima dosis debe ser posterior a la fecha actual.");
+            }
+        }
 
         // Validar procedimiento quirúrgico si fue provisto
         if (dto.ProcedimientoQuirurgico != null)
@@ -392,6 +451,15 @@ public class AtencionMedicaService : IAtencionMedicaService
                 throw new ValidationException("El tipo de procedimiento quirúrgico y la descripción de la intervención son obligatorios.");
             if (string.IsNullOrWhiteSpace(dto.ProcedimientoQuirurgico.Descripcion))
                 throw new ValidationException("El tipo de procedimiento quirúrgico y la descripción de la intervención son obligatorios.");
+            if (dto.ProcedimientoQuirurgico.TipoProcedimiento.Trim().Length > 100)
+                throw new ValidationException("El tipo de procedimiento no puede superar los 100 caracteres.");
+            if (dto.ProcedimientoQuirurgico.Descripcion.Trim().Length > 1000)
+                throw new ValidationException("La descripción no puede superar los 1000 caracteres.");
+            if (!string.IsNullOrWhiteSpace(dto.ProcedimientoQuirurgico.ObservacionesComplicaciones) &&
+                dto.ProcedimientoQuirurgico.ObservacionesComplicaciones.Trim().Length > 500)
+            {
+                throw new ValidationException("Las observaciones o complicaciones no pueden superar los 500 caracteres.");
+            }
         }
 
         // Validar prescripciones si fueron provistas
@@ -406,6 +474,15 @@ public class AtencionMedicaService : IAtencionMedicaService
                 {
                     throw new ValidationException("Los campos de la prescripción médica son obligatorios.");
                 }
+
+                if (p.Medicamento.Trim().Length > 150)
+                    throw new ValidationException("El medicamento no puede superar los 150 caracteres.");
+                if (p.Dosis.Trim().Length > 100)
+                    throw new ValidationException("La dosis no puede superar los 100 caracteres.");
+                if (p.Frecuencia.Trim().Length > 100)
+                    throw new ValidationException("La frecuencia no puede superar los 100 caracteres.");
+                if (p.Duracion.Trim().Length > 100)
+                    throw new ValidationException("La duración no puede superar los 100 caracteres.");
             }
         }
 
@@ -418,7 +495,23 @@ public class AtencionMedicaService : IAtencionMedicaService
                 {
                     throw new ValidationException("El nombre del estudio complementario es obligatorio.");
                 }
+
+                if (e.Nombre.Trim().Length > 150)
+                    throw new ValidationException("El nombre del estudio no puede superar los 150 caracteres.");
+                if (!string.IsNullOrWhiteSpace(e.Resultado) && e.Resultado.Trim().Length > 1000)
+                    throw new ValidationException("El resultado no puede superar los 1000 caracteres.");
             }
+        }
+
+        // Validar coherencia de seguimiento crónico (BUG-06 / CU-04 flujo 2d / RN-11)
+        if (dto.EsEnfermedadCronica == true && dto.SeguimientoCronico == null)
+        {
+            throw new ValidationException("La frecuencia de seguimiento y la jornada preferida son obligatorias para el seguimiento de enfermedad crónica.");
+        }
+
+        if (dto.EsEnfermedadCronica == false && dto.SeguimientoCronico != null)
+        {
+            throw new ValidationException("No se puede especificar un plan de seguimiento crónico cuando se indica que la atención no corresponde a una enfermedad crónica.");
         }
 
         // Validar seguimiento crónico si fue provisto
@@ -427,10 +520,13 @@ public class AtencionMedicaService : IAtencionMedicaService
             var frecuenciasValidas = new[] { "Quincenal", "Mensual", "Bimestral", "Trimestral" };
             var jornadasValidas = new[] { "Manana", "Tarde", "Indistinta" };
 
-            if (string.IsNullOrWhiteSpace(dto.SeguimientoCronico.Frecuencia) ||
-                !frecuenciasValidas.Contains(dto.SeguimientoCronico.Frecuencia, StringComparer.OrdinalIgnoreCase) ||
-                string.IsNullOrWhiteSpace(dto.SeguimientoCronico.JornadaPreferida) ||
-                !jornadasValidas.Contains(dto.SeguimientoCronico.JornadaPreferida, StringComparer.OrdinalIgnoreCase))
+            var frecuenciaTrimmed = dto.SeguimientoCronico.Frecuencia?.Trim();
+            var jornadaTrimmed = dto.SeguimientoCronico.JornadaPreferida?.Trim();
+
+            if (string.IsNullOrWhiteSpace(frecuenciaTrimmed) ||
+                !frecuenciasValidas.Contains(frecuenciaTrimmed, StringComparer.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(jornadaTrimmed) ||
+                !jornadasValidas.Contains(jornadaTrimmed, StringComparer.OrdinalIgnoreCase))
             {
                 throw new ValidationException("La frecuencia de seguimiento y la jornada preferida son obligatorias para el seguimiento de enfermedad crónica.");
             }

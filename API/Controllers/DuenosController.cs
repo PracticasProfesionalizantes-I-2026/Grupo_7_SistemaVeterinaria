@@ -8,6 +8,7 @@ namespace API.Controllers;
 
 [ApiController]
 [Route("api/duenos")]
+[Authorize(Roles = "Recepcionista,Veterinario")]
 public class DuenosController : ControllerBase
 {
     private readonly IDuenoService _duenoService;
@@ -72,6 +73,10 @@ public class DuenosController : ControllerBase
         catch (DuenoNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (DniDuplicadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
         }
     }
 

@@ -19,10 +19,26 @@ public class JwtTokenGenerator : IJwtTokenGenerator
 
     public string GenerateToken(Usuario usuario)
     {
-        var secretKey = _configuration["JwtSettings:SecretKey"] 
-            ?? "ClaveSecretaSuperSeguraParaVeterinariaPatitasJWT2026!#Defecto";
-        var issuer = _configuration["JwtSettings:Issuer"] ?? "VeterinariaPatitasAPI";
-        var audience = _configuration["JwtSettings:Audience"] ?? "VeterinariaPatitasClients";
+        var secretKey = _configuration["JwtSettings:SecretKey"];
+        if (string.IsNullOrWhiteSpace(secretKey) || Encoding.UTF8.GetByteCount(secretKey.Trim()) < 32)
+        {
+            throw new InvalidOperationException(
+                "La clave secreta JWT ('JwtSettings:SecretKey') no está configurada o es inválida. Debe poseer al menos 32 bytes UTF-8.");
+        }
+
+        var normalizedSecretKey = secretKey.Trim();
+        var issuer = _configuration["JwtSettings:Issuer"];
+        if (string.IsNullOrWhiteSpace(issuer))
+        {
+            issuer = "VeterinariaPatitasAPI";
+        }
+
+        var audience = _configuration["JwtSettings:Audience"];
+        if (string.IsNullOrWhiteSpace(audience))
+        {
+            audience = "VeterinariaPatitasClients";
+        }
+
         var expirationMinutesStr = _configuration["JwtSettings:ExpirationMinutes"] ?? "480";
 
         if (!int.TryParse(expirationMinutesStr, out int expirationMinutes))
@@ -30,7 +46,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
             expirationMinutes = 480;
         }
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(normalizedSecretKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var claims = new List<Claim>

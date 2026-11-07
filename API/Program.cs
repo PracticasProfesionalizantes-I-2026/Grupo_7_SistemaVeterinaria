@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using BusinessLogic.Interfaces;
 using BusinessLogic.Services;
@@ -47,10 +48,25 @@ builder.Services.AddScoped<IHistoriaClinicaService, HistoriaClinicaService>();
 builder.Services.AddScoped<IReporteService, ReporteService>();
 
 // Configuración de Autenticación con JWT Bearer
-var secretKey = builder.Configuration["JwtSettings:SecretKey"] 
-    ?? "VeterinariaPatitasDesarrolloSeguraSecretKey2026!#JWTAuthorization";
-var issuer = builder.Configuration["JwtSettings:Issuer"] ?? "VeterinariaPatitasAPI";
-var audience = builder.Configuration["JwtSettings:Audience"] ?? "VeterinariaPatitasClients";
+var secretKey = builder.Configuration["JwtSettings:SecretKey"];
+if (string.IsNullOrWhiteSpace(secretKey) || Encoding.UTF8.GetByteCount(secretKey.Trim()) < 32)
+{
+    throw new InvalidOperationException(
+        "La clave secreta JWT ('JwtSettings:SecretKey') no está configurada o es inválida. Debe poseer al menos 32 bytes UTF-8.");
+}
+
+var normalizedSecretKey = secretKey.Trim();
+var issuer = builder.Configuration["JwtSettings:Issuer"];
+if (string.IsNullOrWhiteSpace(issuer))
+{
+    issuer = "VeterinariaPatitasAPI";
+}
+
+var audience = builder.Configuration["JwtSettings:Audience"];
+if (string.IsNullOrWhiteSpace(audience))
+{
+    audience = "VeterinariaPatitasClients";
+}
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -63,7 +79,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = audience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(normalizedSecretKey))
         };
 
         options.Events = new JwtBearerEvents
@@ -73,7 +89,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var path = context.HttpContext.Request.Path;
                 bool isLogout = path.StartsWithSegments("/api/auth/logout", StringComparison.OrdinalIgnoreCase);
 
-                // Si la petición no es de logout, bloqueamos los tokens revocados
+                // Si la petición no es de logout, bloqueamos los tokens revocados y validamos el estado actual del usuario
                 if (!isLogout)
                 {
                     var jti = context.Principal?.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
@@ -83,7 +99,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                         if (await tokenRepo.EstaRevocadoAsync(jti))
                         {
                             context.Fail("El token de sesión ha sido revocado.");
+                            return;
                         }
+                    }
+
+                    var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                    if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
+                    {
+                        context.Fail("El token no contiene un identificador de usuario válido.");
+                        return;
+                    }
+
+                    var usuarioRepo = context.HttpContext.RequestServices.GetRequiredService<IUsuarioRepository>();
+                    var usuario = await usuarioRepo.GetByIdAsync(usuarioId);
+                    if (usuario == null || !usuario.Activo || usuario.Bloqueado || usuario.RequiereCambioPassword)
+                    {
+                        context.Fail("La cuenta de usuario no se encuentra habilitada para operar con esta sesión.");
+                        return;
                     }
                 }
             }
@@ -105,6 +137,24 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configuración del pipeline HTTP
+// Respaldo global para excepciones no controladas (ERR-01)
+app.UseExceptionHandler(exceptionHandlerApp =>
+{
+    exceptionHandlerApp.Run(async context =>
+    {
+        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+        if (exceptionFeature?.Error != null)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogError(exceptionFeature.Error, "Excepción no controlada al procesar {Path}", exceptionFeature.Path);
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { message = "Ocurrió un error interno al procesar la solicitud." });
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

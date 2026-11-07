@@ -3,7 +3,7 @@ namespace Shared.Exceptions;
 public class TurnoYaCanceladoException : Exception
 {
     public TurnoYaCanceladoException(Guid id)
-        : base($"El turno '{id}' ya fue cancelado previamente y no puede cancelarse ni reactivarse.")
+        : base("El turno ya fue cancelado previamente y no puede cancelarse ni reactivarse.")
     {
     }
 

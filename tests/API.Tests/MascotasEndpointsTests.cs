@@ -34,6 +34,17 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         return authData.Token;
     }
 
+    private async Task<List<DuenoResponseDTO>> ObtenerDuenosAutenticadoAsync(string token)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/duenos");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var res = await _client.SendAsync(req);
+        res.EnsureSuccessStatusCode();
+        var duenos = await res.Content.ReadFromJsonAsync<List<DuenoResponseDTO>>();
+        Assert.NotNull(duenos);
+        return duenos!;
+    }
+
     [Fact]
     public async Task GetAll_ConRolRecepcionista_Retorna200OkYListaDeMascotas()
     {
@@ -104,8 +115,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
 
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var dueno = duenos!.First();
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
 
         var nuevaMascota = new MascotaCreateDTO
         {
@@ -138,8 +149,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     public async Task Create_CamposInvalidosOPesoCero_Retorna400BadRequest()
     {
         var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var dueno = duenos!.First();
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
 
         var mascotaInvalida = new MascotaCreateDTO
         {
@@ -160,6 +171,196 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var response = await _client.SendAsync(request);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(0.04)]
+    [InlineData(200.01)]
+    [InlineData(1000.00)]
+    [InlineData(12.345)]
+    public async Task Create_PesoFueraDeRangoOMasDeDosDecimales_Retorna400BadRequestYSinPersistir(decimal pesoInvalido)
+    {
+        var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
+
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = dueno.Id,
+            Nombre = "MascotaPesoInvalido",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Macho",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = pesoInvalido
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+        {
+            Content = JsonContent.Create(dto)
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        Assert.DoesNotContain(mascotas!, m => m.Nombre == "MascotaPesoInvalido");
+    }
+
+    [Theory]
+    [InlineData(0.04)]
+    [InlineData(200.01)]
+    [InlineData(15.125)]
+    public async Task Update_PesoFueraDeRangoOMasDeDosDecimales_Retorna400BadRequestYSinModificar(decimal pesoInvalido)
+    {
+        var token = await ObtenerTokenAsync("vet.carlos", "Vet1234!");
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        var milo = mascotas!.First(m => m.Nombre == "Milo");
+        var pesoOriginal = milo.Peso;
+
+        var updateDto = new MascotaUpdateDTO
+        {
+            Nombre = milo.Nombre,
+            Especie = milo.Especie,
+            Raza = milo.Raza,
+            Sexo = milo.Sexo,
+            FechaNacimiento = milo.FechaNacimiento,
+            Peso = pesoInvalido,
+            Observaciones = milo.Observaciones
+        };
+
+        var reqUpdate = new HttpRequestMessage(HttpMethod.Put, $"/api/mascotas/{milo.Id}")
+        {
+            Content = JsonContent.Create(updateDto)
+        };
+        reqUpdate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var resUpdate = await _client.SendAsync(reqUpdate);
+        Assert.Equal(HttpStatusCode.BadRequest, resUpdate.StatusCode);
+
+        var reqGet = new HttpRequestMessage(HttpMethod.Get, $"/api/mascotas/{milo.Id}");
+        reqGet.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resGet = await _client.SendAsync(reqGet);
+        var verificada = await resGet.Content.ReadFromJsonAsync<MascotaResponseDTO>();
+        Assert.Equal(pesoOriginal, verificada!.Peso);
+    }
+
+    [Fact]
+    public async Task Create_FechaNacimientoIrrealAnio1900_Retorna400BadRequestYSinPersistir()
+    {
+        var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
+
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = dueno.Id,
+            Nombre = "Mascota1900",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Macho",
+            FechaNacimiento = new DateTime(1900, 1, 1),
+            Peso = 10.0m
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+        {
+            Content = JsonContent.Create(dto)
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        Assert.DoesNotContain(mascotas!, m => m.Nombre == "Mascota1900");
+    }
+
+    [Fact]
+    public async Task Create_FechaNacimientoOmitidaOPorDefecto_Retorna400BadRequestYSinPersistir()
+    {
+        var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
+
+        var payloadSinFecha = new
+        {
+            DuenoId = dueno.Id,
+            Nombre = "MascotaSinFecha",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Macho",
+            Peso = 10.0m
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+        {
+            Content = JsonContent.Create(payloadSinFecha)
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await _client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        Assert.DoesNotContain(mascotas!, m => m.Nombre == "MascotaSinFecha");
+    }
+
+    [Fact]
+    public async Task Create_FechaNacimientoFuturaOMayorA30Anios_Retorna400BadRequestYSinPersistir()
+    {
+        var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
+
+        var fechasInvalidas = new[]
+        {
+            DateTime.UtcNow.AddDays(2),
+            DateTime.UtcNow.Date.AddYears(-30).AddDays(-1)
+        };
+
+        foreach (var fechaInvalida in fechasInvalidas)
+        {
+            var dto = new MascotaCreateDTO
+            {
+                DuenoId = dueno.Id,
+                Nombre = "MascotaFechaInvalida",
+                Especie = "Gato",
+                Raza = "Siamés",
+                Sexo = "Hembra",
+                FechaNacimiento = fechaInvalida,
+                Peso = 4.0m
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+            {
+                Content = JsonContent.Create(dto)
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await _client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        Assert.DoesNotContain(mascotas!, m => m.Nombre == "MascotaFechaInvalida");
     }
 
     [Fact]
@@ -193,8 +394,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var token = await ObtenerTokenAsync("vet.carlos", "Vet1234!");
 
         // Crear una mascota para actualizar
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var dueno = duenos!.First();
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
 
         var nueva = new MascotaCreateDTO
         {
@@ -214,13 +415,16 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var resCreate = await _client.SendAsync(reqCreate);
         var creada = await resCreate.Content.ReadFromJsonAsync<MascotaResponseDTO>();
 
+        var nuevaFechaNacimiento = DateTime.UtcNow.Date.AddYears(-3);
         var updateDto = new MascotaUpdateDTO
         {
             Nombre = "BeagleActualizado",
-            Raza = "Beagle Puro",
-            Sexo = "Macho",
+            Especie = "Gato",
+            Raza = "Siames",
+            Sexo = "Hembra",
+            FechaNacimiento = nuevaFechaNacimiento,
             Peso = 15.5m,
-            Observaciones = "Peso controlado"
+            Observaciones = "Peso y especie corregidos"
         };
 
         var reqUpdate = new HttpRequestMessage(HttpMethod.Put, $"/api/mascotas/{creada!.Id}")
@@ -234,7 +438,199 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var actualizada = await resUpdate.Content.ReadFromJsonAsync<MascotaResponseDTO>();
         Assert.NotNull(actualizada);
         Assert.Equal("BeagleActualizado", actualizada.Nombre);
+        Assert.Equal("Gato", actualizada.Especie);
+        Assert.Equal("Siames", actualizada.Raza);
+        Assert.Equal("Hembra", actualizada.Sexo);
+        Assert.Equal(nuevaFechaNacimiento, actualizada.FechaNacimiento);
         Assert.Equal(15.5m, actualizada.Peso);
+        Assert.Equal(dueno.Id, actualizada.DuenoId);
+        Assert.True(actualizada.Activa);
+    }
+
+    [Fact]
+    public async Task Update_EspecieOFechaNacimientoInvalidas_Retorna400BadRequestYSinModificar()
+    {
+        // Arrange (DOC-01 + VAL-01 en PUT /api/mascotas/{id})
+        var token = await ObtenerTokenAsync("vet.carlos", "Vet1234!");
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        var milo = mascotas!.First(m => m.Nombre == "Milo");
+
+        var payloadsInvalidos = new[]
+        {
+            new MascotaUpdateDTO
+            {
+                Nombre = milo.Nombre,
+                Especie = "", // Especie vacía
+                Raza = milo.Raza,
+                Sexo = milo.Sexo,
+                FechaNacimiento = milo.FechaNacimiento,
+                Peso = milo.Peso
+            },
+            new MascotaUpdateDTO
+            {
+                Nombre = milo.Nombre,
+                Especie = new string('X', 51), // Especie > 50 caracteres
+                Raza = milo.Raza,
+                Sexo = milo.Sexo,
+                FechaNacimiento = milo.FechaNacimiento,
+                Peso = milo.Peso
+            },
+            new MascotaUpdateDTO
+            {
+                Nombre = milo.Nombre,
+                Especie = milo.Especie,
+                Raza = milo.Raza,
+                Sexo = milo.Sexo,
+                FechaNacimiento = DateTime.UtcNow.AddDays(3), // Fecha futura
+                Peso = milo.Peso
+            },
+            new MascotaUpdateDTO
+            {
+                Nombre = milo.Nombre,
+                Especie = milo.Especie,
+                Raza = milo.Raza,
+                Sexo = milo.Sexo,
+                FechaNacimiento = new DateTime(1900, 1, 1), // > 30 años (VAL-01)
+                Peso = milo.Peso
+            },
+            new MascotaUpdateDTO
+            {
+                Nombre = milo.Nombre,
+                Especie = milo.Especie,
+                Raza = milo.Raza,
+                Sexo = milo.Sexo,
+                FechaNacimiento = default, // 0001-01-01
+                Peso = milo.Peso
+            }
+        };
+
+        foreach (var dtoInvalido in payloadsInvalidos)
+        {
+            var reqUpdate = new HttpRequestMessage(HttpMethod.Put, $"/api/mascotas/{milo.Id}")
+            {
+                Content = JsonContent.Create(dtoInvalido)
+            };
+            reqUpdate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var resUpdate = await _client.SendAsync(reqUpdate);
+            Assert.Equal(HttpStatusCode.BadRequest, resUpdate.StatusCode);
+        }
+
+        // Verificar que los datos de Milo permanecieron intactos
+        var reqGet = new HttpRequestMessage(HttpMethod.Get, $"/api/mascotas/{milo.Id}");
+        reqGet.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resGet = await _client.SendAsync(reqGet);
+        var conservada = await resGet.Content.ReadFromJsonAsync<MascotaResponseDTO>();
+        Assert.Equal(milo.Nombre, conservada!.Nombre);
+        Assert.Equal(milo.Especie, conservada.Especie);
+        Assert.Equal(milo.FechaNacimiento, conservada.FechaNacimiento);
+        Assert.Equal(milo.Peso, conservada.Peso);
+        Assert.Equal(milo.DuenoId, conservada.DuenoId);
+        Assert.Equal(milo.Activa, conservada.Activa);
+    }
+
+    [Fact]
+    public async Task CreateYUpdate_SexoNormalizacionYRechazoDeValoresInvalidos_CumpleVAL07()
+    {
+        var token = await ObtenerTokenAsync("vet.carlos", "Vet1234!");
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
+
+        // 1. Alta con sexo inválido -> 400 Bad Request y sin persistir
+        var createInvalido = new MascotaCreateDTO
+        {
+            DuenoId = dueno.Id,
+            Nombre = "MascotaSexoInvalido",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Cualquiera",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 10.0m
+        };
+        var reqCreateInvalido = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+        {
+            Content = JsonContent.Create(createInvalido)
+        };
+        reqCreateInvalido.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resCreateInvalido = await _client.SendAsync(reqCreateInvalido);
+        Assert.Equal(HttpStatusCode.BadRequest, resCreateInvalido.StatusCode);
+
+        var reqList = new HttpRequestMessage(HttpMethod.Get, "/api/mascotas");
+        reqList.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resList = await _client.SendAsync(reqList);
+        var lista = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
+        Assert.DoesNotContain(lista!, m => m.Nombre == "MascotaSexoInvalido");
+
+        // 2. Alta con sexo en minúsculas y espacios ("  hembra  ") -> 201 Created normalizado a "Hembra"
+        var createValido = new MascotaCreateDTO
+        {
+            DuenoId = dueno.Id,
+            Nombre = "NinaNormalizada",
+            Especie = "Gato",
+            Raza = "Común",
+            Sexo = "  hembra  ",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-1),
+            Peso = 3.8m
+        };
+        var reqCreateValido = new HttpRequestMessage(HttpMethod.Post, "/api/mascotas")
+        {
+            Content = JsonContent.Create(createValido)
+        };
+        reqCreateValido.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resCreateValido = await _client.SendAsync(reqCreateValido);
+        Assert.Equal(HttpStatusCode.Created, resCreateValido.StatusCode);
+        var creada = await resCreateValido.Content.ReadFromJsonAsync<MascotaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.Equal("Hembra", creada!.Sexo);
+
+        // 3. Modificación con sexo inválido -> 400 Bad Request y conserva "Hembra"
+        var updateInvalido = new MascotaUpdateDTO
+        {
+            Nombre = creada.Nombre,
+            Especie = creada.Especie,
+            Raza = creada.Raza,
+            Sexo = "Indefinido",
+            FechaNacimiento = creada.FechaNacimiento,
+            Peso = creada.Peso
+        };
+        var reqUpdateInvalido = new HttpRequestMessage(HttpMethod.Put, $"/api/mascotas/{creada.Id}")
+        {
+            Content = JsonContent.Create(updateInvalido)
+        };
+        reqUpdateInvalido.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resUpdateInvalido = await _client.SendAsync(reqUpdateInvalido);
+        Assert.Equal(HttpStatusCode.BadRequest, resUpdateInvalido.StatusCode);
+
+        var reqGet1 = new HttpRequestMessage(HttpMethod.Get, $"/api/mascotas/{creada.Id}");
+        reqGet1.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resGet1 = await _client.SendAsync(reqGet1);
+        var trasError = await resGet1.Content.ReadFromJsonAsync<MascotaResponseDTO>();
+        Assert.Equal("Hembra", trasError!.Sexo);
+
+        // 4. Modificación con sexo en mayúsculas y espacios ("  MACHO  ") -> 200 OK normalizado a "Macho"
+        var updateValido = new MascotaUpdateDTO
+        {
+            Nombre = creada.Nombre,
+            Especie = creada.Especie,
+            Raza = creada.Raza,
+            Sexo = "  MACHO  ",
+            FechaNacimiento = creada.FechaNacimiento,
+            Peso = creada.Peso
+        };
+        var reqUpdateValido = new HttpRequestMessage(HttpMethod.Put, $"/api/mascotas/{creada.Id}")
+        {
+            Content = JsonContent.Create(updateValido)
+        };
+        reqUpdateValido.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var resUpdateValido = await _client.SendAsync(reqUpdateValido);
+        Assert.Equal(HttpStatusCode.OK, resUpdateValido.StatusCode);
+        var actualizada = await resUpdateValido.Content.ReadFromJsonAsync<MascotaResponseDTO>();
+        Assert.NotNull(actualizada);
+        Assert.Equal("Macho", actualizada!.Sexo);
     }
 
     [Fact]
@@ -243,8 +639,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // MEJ-03: Baja lógica exitosa debe retornar 200 OK con confirmación y estado Inactiva
         var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
 
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var dueno = duenos!.First();
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var dueno = duenos.First();
 
         // Creamos una mascota exclusivamente para esta prueba
         var nueva = new MascotaCreateDTO
@@ -304,8 +700,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     {
         var token = await ObtenerTokenAsync("recep.ana", "Recep1234!");
 
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var duenoActual = duenos![0];
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var duenoActual = duenos[0];
         var nuevoDueno = duenos[1];
 
         // Crear una mascota para reasignar
@@ -413,8 +809,8 @@ public class MascotasEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var mascotas = await resList.Content.ReadFromJsonAsync<List<MascotaResponseDTO>>();
         var rocky = mascotas!.First(m => m.Nombre == "Rocky" && !m.Activa);
 
-        var duenos = await _client.GetFromJsonAsync<List<DuenoResponseDTO>>("/api/duenos");
-        var otroDueno = duenos!.First(d => d.Id != rocky.DuenoId);
+        var duenos = await ObtenerDuenosAutenticadoAsync(token);
+        var otroDueno = duenos.First(d => d.Id != rocky.DuenoId);
 
         var dto = new ReasignarDuenoDTO
         {

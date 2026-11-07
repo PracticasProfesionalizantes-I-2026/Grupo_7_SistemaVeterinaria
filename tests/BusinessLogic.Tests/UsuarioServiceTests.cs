@@ -256,9 +256,9 @@ public class UsuarioServiceTests
     }
 
     [Fact]
-    public async Task UnlockAccountAsync_WithNonLockedUser_ThrowsInvalidOperationException()
+    public async Task UnlockAccountAsync_WithNonLockedUser_ThrowsCuentaNoBloqueadaException()
     {
-        // Arrange (CU-13 Flujo A1: Cuenta no bloqueada)
+        // Arrange (CU-13 Flujo A1 / ERR-03: Cuenta no bloqueada lanza CuentaNoBloqueadaException)
         var userId = Guid.NewGuid();
         var adminId = Guid.NewGuid();
 
@@ -275,7 +275,7 @@ public class UsuarioServiceTests
             .ReturnsAsync(usuario);
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<CuentaNoBloqueadaException>(() =>
             _service.DesbloquearCuentaAsync(userId, adminId, "admin"));
 
         Assert.Equal("La cuenta no se encuentra bloqueada.", ex.Message);
@@ -512,6 +512,41 @@ public class UsuarioServiceTests
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _service.RestablecerPasswordAsync(userId, Guid.NewGuid(), "admin"));
+    }
+
+    [Fact]
+    public void DomainExceptions_DefaultMessages_DoNotExposeInternalGuidsRuleCodesOrRoleDetails()
+    {
+        // Arrange (ERR-02: Ninguna excepción de dominio debe exponer el Guid, códigos RN-XX ni detalles de rol/estado interno)
+        var testId = Guid.NewGuid();
+        var idString = testId.ToString();
+
+        var exceptions = new Exception[]
+        {
+            new VeterinarioNotFoundException(testId),
+            new AtencionInmutableException(testId),
+            new DuenoConMascotasException(testId),
+            new MascotaInactivaException(testId),
+            new MascotaYaInactivaException(testId),
+            new PacienteNoAptoVacunacionException(testId),
+            new SeguimientoCronicoDuplicadoException(testId),
+            new TurnoFinalizadoException(testId),
+            new TurnoYaCanceladoException(testId),
+            new DuenoNotFoundException(testId),
+            new MascotaNotFoundException(testId),
+            new AtencionMedicaNotFoundException(testId),
+            new TurnoNotFoundException(testId),
+            new ReporteNotFoundException(testId),
+            new UsuarioNotFoundException(testId),
+            new CuentaNoBloqueadaException()
+        };
+
+        foreach (var ex in exceptions)
+        {
+            Assert.DoesNotContain(idString, ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("RN-", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("posee rol", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     #endregion

@@ -76,9 +76,9 @@ Permite a cualquier usuario autorizado (Recepcionista, Veterinario o Administrad
   2. El sistema restablece a cero el contador de intentos fallidos.
   3. En lugar de emitir un token JWT de acceso y conceder ingreso al sistema, la API devuelve una respuesta **200 OK** con `requiereCambioPassword: true` y sin token de sesión (`token: null`). Esto instruye al cliente a dirigir al usuario a la pantalla de **Cambio obligatorio de contraseña** (endpoint `POST /api/auth/cambiar-password-temporal`).
   4. El usuario ingresa su contraseña actual (temporal), una nueva contraseña y su confirmación.
-  5. El sistema verifica que la contraseña actual sea correcta, que ambas contraseñas nuevas coincidan y que cumplan los requisitos de complejidad (al menos 8 caracteres, incluyendo mayúscula, minúscula y número).
-  6. Si los datos son válidos, el sistema almacena el hash de la nueva contraseña y desactiva la condición de cambio obligatorio (`RequiereCambioPassword = false`).
-  7. El usuario puede ahora iniciar sesión con su nueva contraseña definitiva y obtener su token de acceso según su rol correspondiente.
+  5. El sistema verifica que la cuenta exista, se encuentre activa y no esté bloqueada, que la contraseña actual ingresada coincida con la contraseña temporal vigente (incrementando el mismo contador `IntentosFallidos` ante cada fallo y bloqueando automáticamente la cuenta al alcanzar el 5° intento fallido consecutivo, sin revelar si el usuario existe o si posee cambio pendiente), que la cuenta tenga efectivamente un cambio de contraseña temporal pendiente (`RequiereCambioPassword == true`), y que la nueva contraseña sea diferente de la contraseña temporal actual, coincida con su confirmación y cumpla los requisitos de complejidad (al menos 8 caracteres, incluyendo mayúscula, minúscula y número).
+  6. Si los datos son válidos, el sistema almacena el hash de la nueva contraseña, desactiva la condición de cambio obligatorio (`RequiereCambioPassword = false`), restablece a cero el contador de intentos fallidos y devuelve una respuesta **200 OK** sin emitir token JWT (`token: null`).
+  7. El usuario debe ahora iniciar sesión mediante `POST /api/auth/login` utilizando su nueva contraseña definitiva para obtener su token JWT de acceso según su rol correspondiente (la contraseña temporal anterior queda invalidada).
   8. Si el usuario abandona el proceso sin completar el cambio, la condición de cambio obligatorio permanece pendiente y no se emitirá token de acceso hasta que se concrete el cambio.
 
 ### 5. SUB-VARIACIONES (opcional)

@@ -13,8 +13,8 @@ public class DuenoCreateDTO
     public string Apellido { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "El DNI del dueño es obligatorio.")]
-    [MaxLength(20, ErrorMessage = "El DNI no puede superar los 20 caracteres.")]
-    [RegularExpression(@"^\d+$", ErrorMessage = "El DNI debe contener únicamente dígitos numéricos.")]
+    [MaxLength(10, ErrorMessage = "El DNI debe tener entre 7 y 10 dígitos numéricos.")]
+    [RegularExpression(@"^\s*\d{7,10}\s*$", ErrorMessage = "El DNI debe contener únicamente entre 7 y 10 dígitos numéricos.")]
     public string Dni { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "El teléfono de contacto es obligatorio.")]

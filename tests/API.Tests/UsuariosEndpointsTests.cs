@@ -440,10 +440,10 @@ public class UsuariosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var changeData = await changeRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
         Assert.NotNull(changeData);
-        Assert.False(string.IsNullOrWhiteSpace(changeData.Token));
+        Assert.Null(changeData.Token);
         Assert.False(changeData.RequiereCambioPassword);
 
-        // Verificar que ahora puede autenticarse normalmente con la nueva contraseña
+        // Verificar que ahora puede autenticarse normalmente con la nueva contraseña y recibir su token JWT
         var normalLoginReq = new LoginRequestDTO
         {
             UsuarioOEmail = targetUsername,
@@ -451,6 +451,10 @@ public class UsuariosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         };
         var normalLoginRes = await _client.PostAsJsonAsync("/api/auth/login", normalLoginReq);
         Assert.Equal(HttpStatusCode.OK, normalLoginRes.StatusCode);
+        var normalLoginData = await normalLoginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(normalLoginData);
+        Assert.False(normalLoginData.RequiereCambioPassword);
+        Assert.False(string.IsNullOrWhiteSpace(normalLoginData.Token));
     }
 
     [Fact]
@@ -590,6 +594,148 @@ public class UsuariosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, resetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ResetPassword_InvalidatesPreviouslyIssuedJwtToken_Returning401Unauthorized()
+    {
+        // Arrange (SEC-06: un token emitido antes de restablecer la contraseña queda invalidado cuando RequiereCambioPassword pasa a true)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+
+        var targetUserId = Guid.NewGuid();
+        var targetUsername = "user.sec06.reset." + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Usuarios.Add(new Usuario
+            {
+                Id = targetUserId,
+                Username = targetUsername,
+                Email = $"{targetUsername}@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("InitialPass123!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // El usuario inicia sesión y obtiene un token JWT activo
+        var userToken = await ObetenerTokenAsync(targetUsername, "InitialPass123!");
+
+        var verifyBefore = new HttpRequestMessage(HttpMethod.Get, "/api/auth/verificar-sesion");
+        verifyBefore.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
+        var verifyBeforeRes = await _client.SendAsync(verifyBefore);
+        Assert.Equal(HttpStatusCode.OK, verifyBeforeRes.StatusCode);
+
+        // Act: El Administrador restablece la contraseña del usuario (RequiereCambioPassword = true)
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{targetUserId}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var resetRes = await _client.SendAsync(resetReq);
+        Assert.Equal(HttpStatusCode.OK, resetRes.StatusCode);
+
+        // Assert: El token anterior del usuario ahora es rechazado con 401 Unauthorized en endpoints protegidos
+        var verifyAfterReset = new HttpRequestMessage(HttpMethod.Get, "/api/auth/verificar-sesion");
+        verifyAfterReset.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
+        var verifyAfterResetRes = await _client.SendAsync(verifyAfterReset);
+        Assert.Equal(HttpStatusCode.Unauthorized, verifyAfterResetRes.StatusCode);
+
+        var duenosAfterReset = new HttpRequestMessage(HttpMethod.Get, "/api/duenos");
+        duenosAfterReset.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userToken);
+        var duenosAfterResetRes = await _client.SendAsync(duenosAfterReset);
+        Assert.Equal(HttpStatusCode.Unauthorized, duenosAfterResetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnhandledInvalidOperationException_InUsuariosEndpoints_Returns500GenericJsonWithoutLeakingInternalDetails()
+    {
+        // Arrange (ERR-01 y ERR-03: Un InvalidOperationException inesperado en capa de servicio/persistencia debe retornar 500 genérico y NO 400 ni filtrar ex.Message)
+        const string internalDbSecretMessage = "SQLITE_CORRUPT: Falla interna crítica en tabla Usuarios (detalle sensible)";
+
+        using var customFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.AddScoped<BusinessLogic.Interfaces.IUsuarioService>(_ => new FailingUsuarioServiceStub(internalDbSecretMessage));
+            });
+        });
+
+        using var client = customFactory.CreateClient();
+        var loginRes = await client.PostAsJsonAsync("/api/auth/login", new LoginRequestDTO
+        {
+            UsuarioOEmail = "admin",
+            Password = "Admin1234!"
+        });
+        loginRes.EnsureSuccessStatusCode();
+        var authData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        var adminToken = authData!.Token!;
+
+        // Act 1: Desbloquear cuando ocurre una falla interna (InvalidOperationException)
+        var unlockReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{Guid.NewGuid()}/desbloquear");
+        unlockReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var unlockRes = await client.SendAsync(unlockReq);
+
+        // Assert 1: 500 Internal Server Error con mensaje genérico y sin exponer detalles técnicos
+        Assert.Equal(HttpStatusCode.InternalServerError, unlockRes.StatusCode);
+        var unlockBody = await unlockRes.Content.ReadAsStringAsync();
+        Assert.Contains("Ocurrió un error interno al procesar la solicitud.", unlockBody);
+        Assert.DoesNotContain(internalDbSecretMessage, unlockBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("StackTrace", unlockBody, StringComparison.OrdinalIgnoreCase);
+
+        // Act 2: RestablecerPassword cuando ocurre una falla interna (InvalidOperationException)
+        var resetReq = new HttpRequestMessage(HttpMethod.Post, $"/api/usuarios/{Guid.NewGuid()}/restablecer-password");
+        resetReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var resetRes = await client.SendAsync(resetReq);
+
+        // Assert 2: 500 Internal Server Error con mensaje genérico y sin exponer detalles técnicos
+        Assert.Equal(HttpStatusCode.InternalServerError, resetRes.StatusCode);
+        var resetBody = await resetRes.Content.ReadAsStringAsync();
+        Assert.Contains("Ocurrió un error interno al procesar la solicitud.", resetBody);
+        Assert.DoesNotContain(internalDbSecretMessage, resetBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("StackTrace", resetBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DomainErrorResponses_DoNotExposeInternalGuidOrRuleCodesInHttpResponse()
+    {
+        // Arrange (ERR-02: Las respuestas HTTP 404/409 no deben exponer el Guid buscado ni códigos RN-XX)
+        var adminToken = await ObetenerTokenAsync("admin", "Admin1234!");
+        var nonExistentId = Guid.NewGuid();
+
+        // Act
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/usuarios/{nonExistentId}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var response = await _client.SendAsync(request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(nonExistentId.ToString(), content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No se encontró el usuario solicitado.", content);
+    }
+
+    private sealed class FailingUsuarioServiceStub : BusinessLogic.Interfaces.IUsuarioService
+    {
+        private readonly string _internalMessage;
+
+        public FailingUsuarioServiceStub(string internalMessage)
+        {
+            _internalMessage = internalMessage;
+        }
+
+        public Task<IEnumerable<UsuarioResponseDTO>> GetAllAsync(string? username = null, string? rol = null, string? estado = null)
+            => throw new InvalidOperationException(_internalMessage);
+
+        public Task<UsuarioResponseDTO> GetByIdAsync(Guid id)
+            => throw new InvalidOperationException(_internalMessage);
+
+        public Task<UsuarioResponseDTO> DesbloquearCuentaAsync(Guid usuarioId, Guid administradorId, string administradorUsername)
+            => throw new InvalidOperationException(_internalMessage);
+
+        public Task<RestablecerPasswordResponseDTO> RestablecerPasswordAsync(Guid usuarioId, Guid administradorId, string administradorUsername)
+            => throw new InvalidOperationException(_internalMessage);
     }
 
     #endregion

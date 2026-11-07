@@ -137,10 +137,16 @@ public class AuthService : IAuthService
 
         ValidarComplejidadPassword(dto.NuevaPassword);
 
+        if (dto.NuevaPassword == dto.PasswordActual)
+        {
+            throw new ValidationException("La nueva contraseña debe ser diferente de la contraseña temporal actual.");
+        }
+
         var usuario = await _usuarioRepository.GetByUsernameOrEmailTrackedAsync(dto.UsuarioOEmail);
         if (usuario == null)
         {
-            throw new CredencialesInvalidasException("El usuario especificado no existe.");
+            // Evitar enumeración de usuarios
+            throw new CredencialesInvalidasException("Nombre de usuario o contraseña incorrectos.");
         }
 
         if (usuario.Bloqueado)
@@ -156,27 +162,39 @@ public class AuthService : IAuthService
         bool esPasswordActualValida = _passwordHasher.VerifyPassword(dto.PasswordActual, usuario.PasswordHash);
         if (!esPasswordActualValida)
         {
-            throw new CredencialesInvalidasException("La contraseña actual es incorrecta.");
+            usuario.IntentosFallidos++;
+
+            if (usuario.IntentosFallidos >= 5)
+            {
+                usuario.Bloqueado = true;
+                await _usuarioRepository.UpdateAsync(usuario);
+                throw new UsuarioBloqueadoException("Usuario bloqueado. Contacte al Administrador.");
+            }
+
+            await _usuarioRepository.UpdateAsync(usuario);
+            throw new CredencialesInvalidasException("Nombre de usuario o contraseña incorrectos.");
         }
 
-        // Actualizar contraseña y desactivar condición de cambio obligatorio
+        if (!usuario.RequiereCambioPassword)
+        {
+            throw new ValidationException("El usuario no posee un cambio de contraseña temporal pendiente.");
+        }
+
+        // Actualizar contraseña y desactivar condición de cambio obligatorio (Opción B: sin emitir token JWT)
         usuario.PasswordHash = _passwordHasher.HashPassword(dto.NuevaPassword);
         usuario.RequiereCambioPassword = false;
         usuario.IntentosFallidos = 0;
-        usuario.UltimoAcceso = DateTime.UtcNow;
 
         await _usuarioRepository.UpdateAsync(usuario);
 
-        var token = _jwtTokenGenerator.GenerateToken(usuario);
-
         return new LoginResponseDTO
         {
-            Token = token,
+            Token = null,
             Username = usuario.Username,
             Email = usuario.Email,
             Rol = usuario.Rol,
             RequiereCambioPassword = false,
-            Mensaje = "Contraseña actualizada exitosamente. Acceso concedido."
+            Mensaje = "Contraseña actualizada exitosamente. Por favor, inicie sesión con su nueva contraseña."
         };
     }
 

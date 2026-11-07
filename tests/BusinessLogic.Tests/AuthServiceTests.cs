@@ -254,13 +254,13 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task CambiarPasswordTemporalAsync_WithValidData_UpdatesPasswordAndClearsFlag()
+    public async Task CambiarPasswordTemporalAsync_WithValidData_UpdatesPasswordAndClearsFlagWithoutIssuingToken()
     {
-        // Arrange (A8 cambio exitoso)
+        // Arrange (A8 cambio exitoso - Opción B: sin emitir token JWT)
         var dto = new CambiarPasswordTemporalDTO
         {
             UsuarioOEmail = "user.temporal",
-            PasswordActual = "TemporalPassword",
+            PasswordActual = "TemporalPassword1!",
             NuevaPassword = "NuevaPassword123!",
             ConfirmacionPassword = "NuevaPassword123!"
         };
@@ -274,17 +274,16 @@ public class AuthServiceTests
             Rol = "Recepcionista",
             Activo = true,
             Bloqueado = false,
+            IntentosFallidos = 3,
             RequiereCambioPassword = true
         };
 
         _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("user.temporal"))
                         .ReturnsAsync(usuario);
-        _hasherMock.Setup(h => h.VerifyPassword("TemporalPassword", "hash-viejo"))
+        _hasherMock.Setup(h => h.VerifyPassword("TemporalPassword1!", "hash-viejo"))
                    .Returns(true);
         _hasherMock.Setup(h => h.HashPassword("NuevaPassword123!"))
                    .Returns("hash-nuevo");
-        _jwtMock.Setup(j => j.GenerateToken(usuario))
-                .Returns("token-post-cambio");
 
         // Act
         var result = await _service.CambiarPasswordTemporalAsync(dto);
@@ -292,9 +291,11 @@ public class AuthServiceTests
         // Assert
         Assert.NotNull(result);
         Assert.False(result.RequiereCambioPassword);
-        Assert.Equal("token-post-cambio", result.Token);
+        Assert.Null(result.Token);
         Assert.False(usuario.RequiereCambioPassword);
+        Assert.Equal(0, usuario.IntentosFallidos);
         Assert.Equal("hash-nuevo", usuario.PasswordHash);
+        _jwtMock.Verify(j => j.GenerateToken(It.IsAny<Usuario>()), Times.Never);
         _usuarioRepoMock.Verify(r => r.UpdateAsync(usuario), Times.Once);
     }
 
@@ -332,7 +333,60 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task CambiarPasswordTemporalAsync_WithWrongCurrentPassword_ThrowsCredencialesInvalidasException()
+    public async Task CambiarPasswordTemporalAsync_WhenNewPasswordEqualsCurrent_ThrowsValidationException()
+    {
+        // Arrange (Rechazo de reutilización de la contraseña temporal)
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.temporal",
+            PasswordActual = "Temporal1234!",
+            NuevaPassword = "Temporal1234!",
+            ConfirmacionPassword = "Temporal1234!"
+        };
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        Assert.Equal("La nueva contraseña debe ser diferente de la contraseña temporal actual.", ex.Message);
+        _usuarioRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_WhenRequiereCambioPasswordIsFalse_ThrowsValidationException()
+    {
+        // Arrange (Rechazo cuando RequiereCambioPassword == false)
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "vet.carlos",
+            PasswordActual = "Vet1234!",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        var usuario = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Username = "vet.carlos",
+            Email = "carlos@patitas.com",
+            PasswordHash = "hash-carlos",
+            Activo = true,
+            Bloqueado = false,
+            IntentosFallidos = 0,
+            RequiereCambioPassword = false
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("vet.carlos"))
+                        .ReturnsAsync(usuario);
+        _hasherMock.Setup(h => h.VerifyPassword("Vet1234!", "hash-carlos"))
+                   .Returns(true);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        Assert.Equal("El usuario no posee un cambio de contraseña temporal pendiente.", ex.Message);
+        _usuarioRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_WithWrongCurrentPassword_IncrementsFailedAttemptsAndThrowsGenericMessage()
     {
         // Arrange
         var dto = new CambiarPasswordTemporalDTO
@@ -351,6 +405,7 @@ public class AuthServiceTests
             PasswordHash = "hash-real",
             Activo = true,
             Bloqueado = false,
+            IntentosFallidos = 1,
             RequiereCambioPassword = true
         };
 
@@ -360,8 +415,180 @@ public class AuthServiceTests
                    .Returns(false);
 
         // Act & Assert
-        await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        var ex = await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        Assert.Equal("Nombre de usuario o contraseña incorrectos.", ex.Message);
+        Assert.Equal(2, usuario.IntentosFallidos);
+        Assert.False(usuario.Bloqueado);
+        _usuarioRepoMock.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_OnFifthFailedAttempt_LocksAccountAndThrowsUsuarioBloqueadoException()
+    {
+        // Arrange (Valor límite: 4 intentos previos, el 5° bloquea la cuenta)
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.temporal",
+            PasswordActual = "PasswordIncorrecta",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        var usuario = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Username = "user.temporal",
+            Email = "temporal@patitas.com",
+            PasswordHash = "hash-real",
+            Activo = true,
+            Bloqueado = false,
+            IntentosFallidos = 4,
+            RequiereCambioPassword = true
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("user.temporal"))
+                        .ReturnsAsync(usuario);
+        _hasherMock.Setup(h => h.VerifyPassword("PasswordIncorrecta", "hash-real"))
+                   .Returns(false);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<UsuarioBloqueadoException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        Assert.Equal("Usuario bloqueado. Contacte al Administrador.", ex.Message);
+        Assert.Equal(5, usuario.IntentosFallidos);
+        Assert.True(usuario.Bloqueado);
+        _usuarioRepoMock.Verify(r => r.UpdateAsync(usuario), Times.Once);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_WithNonExistentUser_ThrowsGenericCredencialesInvalidasException()
+    {
+        // Arrange (Anti-enumeración de usuarios)
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "usuario.inexistente",
+            PasswordActual = "CualquierPass1!",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("usuario.inexistente"))
+                        .ReturnsAsync((Usuario?)null);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        Assert.Equal("Nombre de usuario o contraseña incorrectos.", ex.Message);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_WithLockedAccount_ThrowsUsuarioBloqueadoException()
+    {
+        // Arrange
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.bloqueado",
+            PasswordActual = "Temp1234!",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        var usuario = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Username = "user.bloqueado",
+            PasswordHash = "hash",
+            Activo = true,
+            Bloqueado = true,
+            IntentosFallidos = 5,
+            RequiereCambioPassword = true
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("user.bloqueado"))
+                        .ReturnsAsync(usuario);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UsuarioBloqueadoException>(() => _service.CambiarPasswordTemporalAsync(dto));
         _usuarioRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporalAsync_WithInactiveAccount_ThrowsUsuarioInactivoException()
+    {
+        // Arrange
+        var dto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.inactivo",
+            PasswordActual = "Temp1234!",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        var usuario = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Username = "user.inactivo",
+            PasswordHash = "hash",
+            Activo = false,
+            Bloqueado = false,
+            RequiereCambioPassword = true
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("user.inactivo"))
+                        .ReturnsAsync(usuario);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UsuarioInactivoException>(() => _service.CambiarPasswordTemporalAsync(dto));
+        _usuarioRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Usuario>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AlternatingFailedAttempts_BetweenLoginAndCambiarPasswordTemporal_SharesCounterAndLocksOnFifthAttempt()
+    {
+        // Arrange: 2 intentos fallidos en Login + 3 intentos fallidos en CambiarPasswordTemporal = bloqueo al 5°
+        var usuario = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Username = "user.alternado",
+            Email = "alternado@patitas.com",
+            PasswordHash = "hash-real",
+            Activo = true,
+            Bloqueado = false,
+            IntentosFallidos = 0,
+            RequiereCambioPassword = true
+        };
+
+        _usuarioRepoMock.Setup(r => r.GetByUsernameOrEmailTrackedAsync("user.alternado"))
+                        .ReturnsAsync(usuario);
+        _hasherMock.Setup(h => h.VerifyPassword(It.IsAny<string>(), "hash-real"))
+                   .Returns(false);
+
+        var loginDto = new LoginRequestDTO { UsuarioOEmail = "user.alternado", Password = "MalPassword1" };
+        var cambioDto = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.alternado",
+            PasswordActual = "MalPassword2",
+            NuevaPassword = "NuevaPassword123!",
+            ConfirmacionPassword = "NuevaPassword123!"
+        };
+
+        // Act & Assert: Intentos 1 y 2 por Login
+        await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.LoginAsync(loginDto));
+        Assert.Equal(1, usuario.IntentosFallidos);
+
+        await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.LoginAsync(loginDto));
+        Assert.Equal(2, usuario.IntentosFallidos);
+
+        // Intentos 3 y 4 por CambiarPasswordTemporal
+        await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(cambioDto));
+        Assert.Equal(3, usuario.IntentosFallidos);
+
+        await Assert.ThrowsAsync<CredencialesInvalidasException>(() => _service.CambiarPasswordTemporalAsync(cambioDto));
+        Assert.Equal(4, usuario.IntentosFallidos);
+        Assert.False(usuario.Bloqueado);
+
+        // Intento 5 por CambiarPasswordTemporal -> Bloquea la cuenta
+        await Assert.ThrowsAsync<UsuarioBloqueadoException>(() => _service.CambiarPasswordTemporalAsync(cambioDto));
+        Assert.Equal(5, usuario.IntentosFallidos);
+        Assert.True(usuario.Bloqueado);
     }
 
     [Fact]

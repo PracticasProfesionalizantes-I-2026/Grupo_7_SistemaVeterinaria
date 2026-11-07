@@ -334,4 +334,146 @@ public class ReporteServiceTests
         Assert.Equal("Reporte 2", result[0].Motivo);
         Assert.Equal("Reporte 1", result[1].Motivo);
     }
+
+    [Fact]
+    public async Task GenerarReporteAsync_DtoNulo_LanzaValidationException_SinGuardar()
+    {
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            _service.GenerarReporteAsync(null!, Guid.NewGuid(), "admin"));
+
+        _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GenerarReporteAsync_MotivoExcede200CaracteresTrasTrim_LanzaValidationException_SinGuardar()
+    {
+        var request = new GenerarReporteRequestDTO
+        {
+            Motivo = "   " + new string('A', 201) + "   ",
+            TiposReporte = new List<string> { "Atenciones" },
+            FechaDesde = DateTime.UtcNow.AddDays(-5),
+            FechaHasta = DateTime.UtcNow
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            _service.GenerarReporteAsync(request, Guid.NewGuid(), "admin"));
+
+        _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Ventas")]
+    [InlineData("Facturacion")]
+    [InlineData("Inexistente")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task GenerarReporteAsync_TipoReporteInvalidoONuloOVacio_LanzaValidationException_SinGuardar(string? tipoInvalido)
+    {
+        var request = new GenerarReporteRequestDTO
+        {
+            Motivo = "Reporte con tipo inválido",
+            TiposReporte = new List<string> { "Atenciones", tipoInvalido! },
+            FechaDesde = DateTime.UtcNow.AddDays(-5),
+            FechaHasta = DateTime.UtcNow
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            _service.GenerarReporteAsync(request, Guid.NewGuid(), "admin"));
+
+        _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GenerarReporteAsync_TiposConDiferenciasMayusculasYEspacios_NormalizaNombresYGuardaCanonicamente()
+    {
+        var request = new GenerarReporteRequestDTO
+        {
+            Motivo = "  Reporte con normalización  ",
+            TiposReporte = new List<string> { "  aTeNcIoNeS ", "VACUNACIONES", " mAsCoTaS ", "duenos", "TURNOS", "atenciones" },
+            FechaDesde = DateTime.UtcNow.AddDays(-10),
+            FechaHasta = DateTime.UtcNow
+        };
+
+        _atencionRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+                         .ReturnsAsync(new List<AtencionMedica>());
+        _mascotaRepoMock.Setup(r => r.GetAllAsync(null))
+                        .ReturnsAsync(new List<Mascota>());
+        _duenoRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+                      .ReturnsAsync(new List<Dueno>());
+        _turnoRepoMock.Setup(r => r.GetAgendaAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), null, null))
+                      .ReturnsAsync(new List<Turno>());
+
+        Reporte? reporteGuardado = null;
+        _reporteRepoMock.Setup(r => r.CreateAsync(It.IsAny<Reporte>()))
+                        .Callback<Reporte>(r => reporteGuardado = r)
+                        .ReturnsAsync((Reporte r) =>
+                        {
+                            r.Id = Guid.NewGuid();
+                            return r;
+                        });
+
+        var result = await _service.GenerarReporteAsync(request, Guid.NewGuid(), "admin");
+
+        Assert.Equal("Reporte con normalización", result.Motivo);
+        Assert.Equal(new[] { "Atenciones", "Vacunaciones", "Mascotas", "Duenos", "Turnos" }, result.TiposReporte);
+        Assert.NotNull(reporteGuardado);
+        Assert.Equal("[\"Atenciones\",\"Vacunaciones\",\"Mascotas\",\"Duenos\",\"Turnos\"]", reporteGuardado!.TiposReporteJson);
+    }
+
+    [Fact]
+    public async Task GenerarReporteAsync_FechaDesdeOFechaHastaDefault_LanzaRangoFechasInvalidoException_SinGuardar()
+    {
+        var reqDesdeDefault = new GenerarReporteRequestDTO
+        {
+            Motivo = "Fecha desde omitida",
+            TiposReporte = new List<string> { "Atenciones" },
+            FechaDesde = default,
+            FechaHasta = DateTime.UtcNow
+        };
+
+        await Assert.ThrowsAsync<RangoFechasInvalidoException>(() =>
+            _service.GenerarReporteAsync(reqDesdeDefault, Guid.NewGuid(), "admin"));
+
+        var reqHastaDefault = new GenerarReporteRequestDTO
+        {
+            Motivo = "Fecha hasta omitida",
+            TiposReporte = new List<string> { "Atenciones" },
+            FechaDesde = DateTime.UtcNow.AddDays(-5),
+            FechaHasta = default
+        };
+
+        await Assert.ThrowsAsync<RangoFechasInvalidoException>(() =>
+            _service.GenerarReporteAsync(reqHastaDefault, Guid.NewGuid(), "admin"));
+
+        _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GenerarReporteAsync_FechaFutura_LanzaRangoFechasInvalidoException_SinGuardar()
+    {
+        var reqHastaFutura = new GenerarReporteRequestDTO
+        {
+            Motivo = "Fecha hasta futura",
+            TiposReporte = new List<string> { "Atenciones" },
+            FechaDesde = DateTime.UtcNow.AddDays(-5),
+            FechaHasta = DateTime.UtcNow.Date.AddDays(1)
+        };
+
+        await Assert.ThrowsAsync<RangoFechasInvalidoException>(() =>
+            _service.GenerarReporteAsync(reqHastaFutura, Guid.NewGuid(), "admin"));
+
+        var reqDesdeYHastaFuturas = new GenerarReporteRequestDTO
+        {
+            Motivo = "Ambas fechas futuras",
+            TiposReporte = new List<string> { "Atenciones" },
+            FechaDesde = DateTime.UtcNow.Date.AddDays(2),
+            FechaHasta = DateTime.UtcNow.Date.AddDays(5)
+        };
+
+        await Assert.ThrowsAsync<RangoFechasInvalidoException>(() =>
+            _service.GenerarReporteAsync(reqDesdeYHastaFuturas, Guid.NewGuid(), "admin"));
+
+        _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Never);
+    }
 }

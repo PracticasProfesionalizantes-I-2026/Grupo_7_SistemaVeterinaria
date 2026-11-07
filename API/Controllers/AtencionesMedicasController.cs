@@ -10,6 +10,7 @@ namespace API.Controllers;
 [ApiController]
 [Route("api/atenciones-medicas")]
 [Route("api/atenciones")]
+[Authorize(Roles = "Veterinario")]
 public class AtencionesMedicasController : ControllerBase
 {
     private readonly IAtencionMedicaService _atencionMedicaService;

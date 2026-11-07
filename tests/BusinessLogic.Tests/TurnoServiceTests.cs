@@ -284,16 +284,157 @@ public class TurnoServiceTests
     {
         var id = Guid.NewGuid();
         var vetId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
         var nuevaFecha = DateTime.UtcNow.AddDays(3).Date.AddHours(10);
         var dto = new TurnoUpdateDTO { FechaHora = nuevaFecha };
 
-        var turno = new Turno { Id = id, VeterinarioId = vetId, Estado = "Confirmado" };
+        var turno = new Turno
+        {
+            Id = id,
+            MascotaId = mascotaId,
+            Mascota = new Mascota { Id = mascotaId, Activa = true },
+            VeterinarioId = vetId,
+            Estado = "Confirmado"
+        };
 
         _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(id)).ReturnsAsync(turno);
         _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, nuevaFecha, 30)).ReturnsAsync(true);
         _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, nuevaFecha, id)).ReturnsAsync(true);
 
         await Assert.ThrowsAsync<HorarioNoDisponibleException>(() => _service.UpdateAsync(id, dto));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_MascotaInactiva_LanzaMascotaInactivaExceptionYSinModificar()
+    {
+        // Arrange (BUG-05 / RN-07 / CU-06 flujo 3e: No reprogramar turnos de mascotas inactivas)
+        var id = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var fechaOriginal = DateTime.UtcNow.AddDays(1).Date.AddHours(9);
+        var nuevaFecha = DateTime.UtcNow.AddDays(3).Date.AddHours(10);
+        var dto = new TurnoUpdateDTO { FechaHora = nuevaFecha, MotivoConsulta = "Intento reprogramación" };
+
+        var turno = new Turno
+        {
+            Id = id,
+            MascotaId = mascotaId,
+            Mascota = new Mascota { Id = mascotaId, Nombre = "Rocky", Activa = false },
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = fechaOriginal,
+            MotivoConsulta = "Motivo original",
+            Estado = "Confirmado"
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(id)).ReturnsAsync(turno);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<MascotaInactivaException>(() => _service.UpdateAsync(id, dto));
+        Assert.Equal(fechaOriginal, turno.FechaHora);
+        Assert.Equal("Motivo original", turno.MotivoConsulta);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_MascotaAsociadaInexistente_LanzaMascotaNotFoundExceptionYSinModificar()
+    {
+        // Arrange (BUG-05: Si la mascota asociada no existe -> 404 MascotaNotFoundException sin modificar)
+        var id = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var fechaOriginal = DateTime.UtcNow.AddDays(1).Date.AddHours(9);
+        var nuevaFecha = DateTime.UtcNow.AddDays(3).Date.AddHours(10);
+        var dto = new TurnoUpdateDTO { FechaHora = nuevaFecha, MotivoConsulta = "Intento reprogramación" };
+
+        var turno = new Turno
+        {
+            Id = id,
+            MascotaId = mascotaId,
+            Mascota = null!,
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = fechaOriginal,
+            MotivoConsulta = "Motivo original",
+            Estado = "Confirmado"
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(id)).ReturnsAsync(turno);
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync((Mascota?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<MascotaNotFoundException>(() => _service.UpdateAsync(id, dto));
+        Assert.Equal(fechaOriginal, turno.FechaHora);
+        Assert.Equal("Motivo original", turno.MotivoConsulta);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Invalido")]
+    [InlineData("EnCurso")]
+    [InlineData("Completado")]
+    public async Task GetAgendaAsync_EstadoInvalido_LanzaValidationException(string estadoInvalido)
+    {
+        // Arrange (BUG-04 / CU-05 flujo 1a)
+        var filtro = new AgendaFilterDTO { Estado = estadoInvalido };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ValidationException>(() => _service.GetAgendaAsync(filtro));
+        _turnoRepoMock.Verify(r => r.GetAgendaAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Pendiente")]
+    [InlineData("Confirmado")]
+    [InlineData("EnAtencion")]
+    [InlineData("Finalizado")]
+    [InlineData("Cancelado")]
+    [InlineData("confirmado")]
+    public async Task GetAgendaAsync_EstadosValidos_PermiteConsultaYNormalizaEstado(string estadoValido)
+    {
+        // Arrange (BUG-04: Estados válidos permitidos)
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+        _turnoRepoMock.Setup(r => r.GetAgendaAsync(null, null, vetId, It.IsAny<string?>()))
+                      .ReturnsAsync(new List<Turno>());
+
+        var filtro = new AgendaFilterDTO { VeterinarioId = vetId, Estado = estadoValido };
+
+        // Act
+        var result = await _service.GetAgendaAsync(filtro);
+
+        // Assert
+        Assert.NotNull(result);
+        _turnoRepoMock.Verify(r => r.GetAgendaAsync(
+            null,
+            null,
+            vetId,
+            It.Is<string?>(s => string.Equals(s, estadoValido, StringComparison.OrdinalIgnoreCase))), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_VeterinarioInexistenteInactivoOSinRolVeterinario_LanzaVeterinarioNotFoundException()
+    {
+        // Arrange (BUG-04 / CU-05 flujo 3b)
+        var vetInexistenteId = Guid.NewGuid();
+        var vetInactivoId = Guid.NewGuid();
+        var recepcionistaId = Guid.NewGuid();
+
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetInexistenteId)).ReturnsAsync((Usuario?)null);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetInactivoId)).ReturnsAsync(new Usuario { Id = vetInactivoId, Rol = "Veterinario", Activo = false });
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(recepcionistaId)).ReturnsAsync(new Usuario { Id = recepcionistaId, Rol = "Recepcionista", Activo = true });
+
+        // Act & Assert
+        await Assert.ThrowsAsync<VeterinarioNotFoundException>(() => _service.GetAgendaAsync(new AgendaFilterDTO { VeterinarioId = vetInexistenteId }));
+        await Assert.ThrowsAsync<VeterinarioNotFoundException>(() => _service.GetAgendaAsync(new AgendaFilterDTO { VeterinarioId = vetInactivoId }));
+        await Assert.ThrowsAsync<VeterinarioNotFoundException>(() => _service.GetAgendaAsync(new AgendaFilterDTO { VeterinarioId = recepcionistaId }));
+        _turnoRepoMock.Verify(r => r.GetAgendaAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_FiltroConGuidEmpty_LanzaValidationException()
+    {
+        // Arrange (BUG-04: Guid.Empty proporcionado como filtro es inválido -> 400 ValidationException)
+        await Assert.ThrowsAsync<ValidationException>(() => _service.GetAgendaAsync(new AgendaFilterDTO { VeterinarioId = Guid.Empty }));
+        await Assert.ThrowsAsync<ValidationException>(() => _service.GetAgendaAsync(new AgendaFilterDTO { MascotaId = Guid.Empty }));
+        _turnoRepoMock.Verify(r => r.GetAgendaAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<Guid?>(), It.IsAny<string?>()), Times.Never);
     }
 
     // --- CANCELACIÓN INDIVIDUAL CON AUDITORÍA Y LIBERACIÓN (RN-08, RN-09) ---
@@ -428,6 +569,248 @@ public class TurnoServiceTests
 
         await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
             _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+    }
+
+    [Fact]
+    public async Task ConfigurarDisponibilidad_DtoNuloOSinElementos_LanzaValidationException_SinGuardar()
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, null!));
+
+        var dtoVacio = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>()
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dtoVacio));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ConfigurarDisponibilidad_ElementoNuloEnLista_LanzaDisponibilidadInvalidaException_SinGuardar()
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                },
+                null!
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(7)]
+    [InlineData(99)]
+    public async Task ConfigurarDisponibilidad_DiaSemanaInvalido_LanzaDisponibilidadInvalidaException_SinGuardar(int diaInvalido)
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = (DayOfWeek)diaInvalido,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Noche")]
+    [InlineData("Completa")]
+    public async Task ConfigurarDisponibilidad_JornadaInvalidaOVacia_LanzaDisponibilidadInvalidaException_SinGuardar(string? jornadaInvalida)
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = jornadaInvalida!,
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ConfigurarDisponibilidad_JornadaConMayusculasYEspacios_NormalizaAMananaOTarde()
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        List<DisponibilidadVeterinario>? guardadas = null;
+        _disponibilidadRepoMock
+            .Setup(r => r.SetDisponibilidadesAsync(vetId, It.IsAny<IEnumerable<DisponibilidadVeterinario>>()))
+            .Callback<Guid, IEnumerable<DisponibilidadVeterinario>>((_, list) => guardadas = list.ToList())
+            .Returns(Task.CompletedTask);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "  mAnAnA  ",
+                    HoraInicio = new TimeSpan(0, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                },
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Tuesday,
+                    Jornada = " TARDE ",
+                    HoraInicio = new TimeSpan(14, 30, 0),
+                    HoraFin = TimeSpan.FromHours(24)
+                }
+            }
+        };
+
+        var result = (await _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto)).ToList();
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Manana", result[0].Jornada);
+        Assert.Equal("Tarde", result[1].Jornada);
+        Assert.NotNull(guardadas);
+        Assert.Equal("Manana", guardadas![0].Jornada);
+        Assert.Equal("Tarde", guardadas[1].Jornada);
+    }
+
+    [Theory]
+    [InlineData(-30, 720)]   // HoraInicio negativa (-00:30)
+    [InlineData(-120, 480)]  // HoraInicio negativa (-02:00)
+    [InlineData(480, 1470)]  // HoraFin mayor a 24:00 (24:30)
+    [InlineData(480, 1800)]  // HoraFin mayor a 24:00 (30:00)
+    [InlineData(480, 480)]   // HoraInicio == HoraFin (08:00 == 08:00)
+    public async Task ConfigurarDisponibilidad_HorarioFueraDeLas24HorasOInicioIgualFin_LanzaDisponibilidadInvalidaException_SinGuardar(
+        int inicioMinutos,
+        int finMinutos)
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "Manana",
+                    HoraInicio = TimeSpan.FromMinutes(inicioMinutos),
+                    HoraFin = TimeSpan.FromMinutes(finMinutos)
+                }
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Theory]
+    [InlineData(8, 15, 0, 0, 12, 0, 0, 0)]   // HoraInicio con minutos :15
+    [InlineData(8, 0, 0, 0, 11, 45, 0, 0)]   // HoraFin con minutos :45
+    [InlineData(8, 0, 10, 0, 12, 0, 0, 0)]   // HoraInicio con segundos
+    [InlineData(8, 0, 0, 0, 12, 0, 1, 0)]    // HoraFin con segundos
+    [InlineData(8, 0, 0, 250, 12, 0, 0, 0)]  // HoraInicio con milisegundos
+    public async Task ConfigurarDisponibilidad_HorarioNoAlineadoABloqueDe30Minutos_LanzaDisponibilidadInvalidaException_SinGuardar(
+        int hIni, int mIni, int sIni, int msIni,
+        int hFin, int mFin, int sFin, int msFin)
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Wednesday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(0, hIni, mIni, sIni, msIni),
+                    HoraFin = new TimeSpan(0, hFin, mFin, sFin, msFin)
+                }
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
     }
 
     // --- SEGUIMIENTOS DE ENFERMEDADES CRÓNICAS (RN-11) ---

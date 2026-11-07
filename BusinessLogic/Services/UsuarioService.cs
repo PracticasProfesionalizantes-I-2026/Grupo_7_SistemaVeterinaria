@@ -59,7 +59,7 @@ public class UsuarioService : IUsuarioService
 
         if (!usuario.Bloqueado)
         {
-            throw new InvalidOperationException("La cuenta no se encuentra bloqueada.");
+            throw new CuentaNoBloqueadaException("La cuenta no se encuentra bloqueada.");
         }
 
         // Restablecer estado sin modificar PasswordHash ni RequiereCambioPassword

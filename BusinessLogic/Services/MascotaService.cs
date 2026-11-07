@@ -8,6 +8,10 @@ namespace BusinessLogic.Services;
 
 public class MascotaService : IMascotaService
 {
+    private const int MaxEdadMascotaAnios = 30;
+    private const decimal MinPesoKg = 0.05m;
+    private const decimal MaxPesoKg = 200.00m;
+
     private readonly IMascotaRepository _mascotaRepository;
     private readonly IDuenoRepository _duenoRepository;
 
@@ -59,6 +63,7 @@ public class MascotaService : IMascotaService
     public async Task<MascotaResponseDTO> CreateAsync(MascotaCreateDTO dto)
     {
         ValidateCreateDto(dto);
+        var sexoNormalizado = NormalizeAndValidateSexo(dto.Sexo);
 
         // RN-06: Asociación obligatoria a un dueño registrado
         var dueno = await _duenoRepository.GetByIdAsync(dto.DuenoId);
@@ -73,7 +78,7 @@ public class MascotaService : IMascotaService
             Nombre = dto.Nombre.Trim(),
             Especie = dto.Especie.Trim(),
             Raza = dto.Raza.Trim(),
-            Sexo = dto.Sexo.Trim(),
+            Sexo = sexoNormalizado,
             FechaNacimiento = dto.FechaNacimiento,
             Peso = dto.Peso,
             Activa = true,
@@ -91,6 +96,7 @@ public class MascotaService : IMascotaService
     public async Task<MascotaResponseDTO> UpdateAsync(Guid id, MascotaUpdateDTO dto)
     {
         ValidateUpdateDto(dto);
+        var sexoNormalizado = NormalizeAndValidateSexo(dto.Sexo);
 
         var mascota = await _mascotaRepository.GetByIdTrackedAsync(id);
         if (mascota == null)
@@ -99,8 +105,10 @@ public class MascotaService : IMascotaService
         }
 
         mascota.Nombre = dto.Nombre.Trim();
+        mascota.Especie = dto.Especie.Trim();
         mascota.Raza = dto.Raza.Trim();
-        mascota.Sexo = dto.Sexo.Trim();
+        mascota.Sexo = sexoNormalizado;
+        mascota.FechaNacimiento = dto.FechaNacimiento;
         mascota.Peso = dto.Peso;
         mascota.Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim();
 
@@ -199,14 +207,14 @@ public class MascotaService : IMascotaService
             throw new ValidationException("La raza de la mascota es obligatoria.");
         if (dto.Raza.Trim().Length > 50)
             throw new ValidationException("La raza no puede superar los 50 caracteres.");
-        if (string.IsNullOrWhiteSpace(dto.Sexo))
-            throw new ValidationException("El sexo de la mascota es obligatorio.");
-        if (dto.Sexo.Trim().Length > 20)
-            throw new ValidationException("El sexo no puede superar los 20 caracteres.");
-        if (dto.Peso <= 0)
-            throw new ValidationException("El peso de la mascota debe ser mayor a 0 kg.");
+        NormalizeAndValidateSexo(dto.Sexo);
+        ValidatePeso(dto.Peso);
+        if (dto.FechaNacimiento == default)
+            throw new ValidationException("La fecha de nacimiento es obligatoria.");
         if (dto.FechaNacimiento > DateTime.UtcNow)
             throw new ValidationException("La fecha de nacimiento no puede ser una fecha futura.");
+        if (dto.FechaNacimiento.Date < DateTime.UtcNow.Date.AddYears(-MaxEdadMascotaAnios))
+            throw new ValidationException($"La fecha de nacimiento ingresada no es válida: la antigüedad máxima permitida es de {MaxEdadMascotaAnios} años.");
         if (dto.Observaciones != null && dto.Observaciones.Trim().Length > 500)
             throw new ValidationException("Las observaciones no pueden superar los 500 caracteres.");
     }
@@ -217,18 +225,50 @@ public class MascotaService : IMascotaService
             throw new ValidationException("El nombre de la mascota es obligatorio.");
         if (dto.Nombre.Trim().Length > 100)
             throw new ValidationException("El nombre no puede superar los 100 caracteres.");
+        if (string.IsNullOrWhiteSpace(dto.Especie))
+            throw new ValidationException("La especie de la mascota es obligatoria.");
+        if (dto.Especie.Trim().Length > 50)
+            throw new ValidationException("La especie no puede superar los 50 caracteres.");
         if (string.IsNullOrWhiteSpace(dto.Raza))
             throw new ValidationException("La raza de la mascota es obligatoria.");
         if (dto.Raza.Trim().Length > 50)
             throw new ValidationException("La raza no puede superar los 50 caracteres.");
-        if (string.IsNullOrWhiteSpace(dto.Sexo))
-            throw new ValidationException("El sexo de la mascota es obligatorio.");
-        if (dto.Sexo.Trim().Length > 20)
-            throw new ValidationException("El sexo no puede superar los 20 caracteres.");
-        if (dto.Peso <= 0)
-            throw new ValidationException("El peso de la mascota debe ser mayor a 0 kg.");
+        NormalizeAndValidateSexo(dto.Sexo);
+        ValidatePeso(dto.Peso);
+        if (dto.FechaNacimiento == default)
+            throw new ValidationException("La fecha de nacimiento es obligatoria.");
+        if (dto.FechaNacimiento > DateTime.UtcNow)
+            throw new ValidationException("La fecha de nacimiento no puede ser una fecha futura.");
+        if (dto.FechaNacimiento.Date < DateTime.UtcNow.Date.AddYears(-MaxEdadMascotaAnios))
+            throw new ValidationException($"La fecha de nacimiento ingresada no es válida: la antigüedad máxima permitida es de {MaxEdadMascotaAnios} años.");
         if (dto.Observaciones != null && dto.Observaciones.Trim().Length > 500)
             throw new ValidationException("Las observaciones no pueden superar los 500 caracteres.");
+    }
+
+    private static string NormalizeAndValidateSexo(string? sexo)
+    {
+        if (string.IsNullOrWhiteSpace(sexo))
+            throw new ValidationException("El sexo de la mascota es obligatorio.");
+
+        var limpio = sexo.Trim();
+        if (limpio.Length > 20)
+            throw new ValidationException("El sexo no puede superar los 20 caracteres.");
+
+        if (limpio.Equals("Macho", StringComparison.OrdinalIgnoreCase))
+            return "Macho";
+
+        if (limpio.Equals("Hembra", StringComparison.OrdinalIgnoreCase))
+            return "Hembra";
+
+        throw new ValidationException("El sexo de la mascota solo admite los valores 'Macho' o 'Hembra'.");
+    }
+
+    private static void ValidatePeso(decimal peso)
+    {
+        if (peso < MinPesoKg || peso > MaxPesoKg)
+            throw new ValidationException("El peso de la mascota debe estar entre 0.05 kg y 200 kg.");
+        if (decimal.Round(peso, 2) != peso)
+            throw new ValidationException("El peso de la mascota admite como máximo 2 decimales.");
     }
 
     private MascotaResponseDTO MapToResponseDTO(Mascota mascota)

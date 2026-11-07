@@ -66,7 +66,7 @@ public class UsuariosController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
-        catch (InvalidOperationException ex)
+        catch (CuentaNoBloqueadaException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
@@ -93,10 +93,6 @@ public class UsuariosController : ControllerBase
             return NotFound(new { message = ex.Message });
         }
         catch (UsuarioInactivoException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }

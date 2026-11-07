@@ -104,6 +104,11 @@ dotnet run --project API/API.csproj
 ```
 Al iniciar, `DbInitializer` crea automáticamente la base de datos `veterinaria.db` (si no existe), aplica las migraciones pendientes y precarga datos iniciales de prueba (2 Dueños, 3 Mascotas [activas e inactiva] y 2 Atenciones Médicas).
 
+> **Advertencia de Seguridad — Configuración de Clave JWT (`JwtSettings:SecretKey`):**
+> * El archivo base [`API/appsettings.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.json) no contiene ninguna clave secreta activa (`"SecretKey": ""`).
+> * El archivo [`API/appsettings.Development.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.Development.json) incluye una clave exclusiva para el entorno `Development` con el único propósito de permitir la ejecución académica local inmediata mediante `dotnet run --project API/API.csproj`. **Dado que dicha clave forma parte del repositorio público, nunca debe utilizarse ni reutilizarse en entornos de producción.**
+> * En cualquier entorno fuera de `Development` (como `Production`), la aplicación exige obligatoriamente configurar una clave secreta externa de al menos **32 bytes UTF-8 (256 bits)** (por ejemplo, mediante la variable de entorno `JwtSettings__SecretKey`); si la clave está ausente o es inválida, la aplicación rechaza iniciar.
+
 ### 2.3. Acceso a la Documentación Interactiva (Scalar)
 Abre tu navegador en:
 ```text

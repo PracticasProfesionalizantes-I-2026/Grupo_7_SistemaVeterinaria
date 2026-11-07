@@ -98,9 +98,9 @@ public class HistoriaClinicaEndpointsTests : IClassFixture<CustomWebApplicationF
     }
 
     [Fact]
-    public async Task GetHistoriaClinica_ConRolAdministrador_Retorna200Ok()
+    public async Task GetHistoriaClinica_ConRolAdministrador_Retorna403Forbidden()
     {
-        // Arrange
+        // Arrange (RBAC: Administrador limitado a usuarios y reportes; sin acceso a historias clínicas)
         var token = await ObtenerTokenAsync("admin", "Admin1234!");
         var miloId = await ObtenerIdMascotaAsync("Milo");
 
@@ -111,7 +111,24 @@ public class HistoriaClinicaEndpointsTests : IClassFixture<CustomWebApplicationF
         var response = await _client.SendAsync(request);
 
         // Assert
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetHistoriaClinica_RutaCanonicaMascotas_ConRolAdministrador_Retorna403Forbidden()
+    {
+        // Arrange
+        var token = await ObtenerTokenAsync("admin", "Admin1234!");
+        var miloId = await ObtenerIdMascotaAsync("Milo");
+
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/mascotas/{miloId}/historia-clinica");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Act
+        var response = await _client.SendAsync(request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -276,5 +293,30 @@ public class HistoriaClinicaEndpointsTests : IClassFixture<CustomWebApplicationF
 
         // Assert
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task BuscarHistoriasClinicas_ConRolAdministrador_Retorna403Forbidden()
+    {
+        // Arrange
+        var token = await ObtenerTokenAsync("admin", "Admin1234!");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/historias-clinicas");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Act
+        var response = await _client.SendAsync(request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task BuscarHistoriasClinicas_SinToken_Retorna401Unauthorized()
+    {
+        // Act
+        var response = await _client.GetAsync("/api/historias-clinicas");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

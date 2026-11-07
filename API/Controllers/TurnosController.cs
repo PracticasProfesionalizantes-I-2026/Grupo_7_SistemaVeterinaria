@@ -22,8 +22,19 @@ public class TurnosController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TurnoResponseDTO>>> GetAgenda([FromQuery] AgendaFilterDTO filtro)
     {
-        var result = await _turnoService.GetAgendaAsync(filtro);
-        return Ok(result);
+        try
+        {
+            var result = await _turnoService.GetAgendaAsync(filtro);
+            return Ok(result);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (VeterinarioNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
     }
 
     [HttpGet("{id:guid}")]
@@ -86,9 +97,17 @@ public class TurnosController : ControllerBase
         {
             return NotFound(new { message = ex.Message });
         }
+        catch (MascotaNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
         catch (VeterinarioNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (MascotaInactivaException ex)
+        {
+            return Conflict(new { message = ex.Message });
         }
         catch (TurnoFinalizadoException ex)
         {
@@ -159,6 +178,20 @@ public class TurnosController : ControllerBase
         Guid veterinarioId,
         [FromBody] ConfigurarDisponibilidadDTO dto)
     {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioAutenticadoId) || usuarioAutenticadoId == Guid.Empty)
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
+        if (User.IsInRole("Veterinario") && !User.IsInRole("Recepcionista"))
+        {
+            if (usuarioAutenticadoId != veterinarioId || (dto.VeterinarioId != Guid.Empty && dto.VeterinarioId != usuarioAutenticadoId))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "Un veterinario únicamente puede configurar su propia disponibilidad horaria." });
+            }
+        }
+
         try
         {
             var result = await _turnoService.ConfigurarDisponibilidadVeterinarioAsync(veterinarioId, dto);

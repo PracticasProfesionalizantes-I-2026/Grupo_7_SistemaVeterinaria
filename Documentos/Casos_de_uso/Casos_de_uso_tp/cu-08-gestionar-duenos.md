@@ -18,7 +18,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) consultar el listado de dueños registrados, buscar por nombre, apellido o DNI, visualizar el detalle de contacto y sus mascotas asociadas, actualizar su información de contacto o gestionar su baja en el sistema.
+Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) consultar el listado de dueños registrados, visualizar el detalle de contacto y sus mascotas asociadas, actualizar su información de contacto (`nombre`, `apellido`, `dni`, `telefono`, `email` y `direccion`) o gestionar su baja en el sistema.
 
 ### 2. PRECONDICIONES
 - El actor debe poseer un estado de autenticación activo (Token JWT válido) con rol de `Recepcionista` o `Veterinario` (el Administrador no cuenta con permisos para consultar ni modificar datos administrativos de dueños).
@@ -26,11 +26,11 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
 - La base de datos debe encontrarse operativa.
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 200 / 204)
-1. El Actor envía una petición al endpoint `GET /api/duenos/{id}` para consultar el detalle de un dueño, o `PUT /api/duenos/{id}` con el JSON de actualización de datos de contacto (`nombre`, `apellido`, `dni`, `telefono`, `domicilio`, `email`).
+1. El Actor envía una petición al endpoint `GET /api/duenos/{id}` para consultar el detalle de un dueño, o `PUT /api/duenos/{id}` con el JSON de actualización de datos de contacto (`nombre`, `apellido`, `dni`, `telefono`, `email` y opcionalmente `direccion`).
 2. La **Capa de Presentación** (`DuenosController.UpdateDueno`) valida que el ID de ruta coincida y que los atributos de validación del DTO sean correctos (`DuenoUpdateDTO`).
 3. La **Capa de Negocio** (`DuenoService.UpdateDuenoAsync`) recupera al dueño por ID, verifica que el nuevo DNI no esté utilizado por otro dueño distinto (**RN-05**), normaliza los textos con `Trim()` y actualiza los campos.
 4. La **Capa de Persistencia** actualiza el registro en la tabla `Duenos` y persiste los cambios.
-5. El Sistema devuelve un código **200 OK** con los datos actualizados del dueño y sus mascotas vinculadas (`DuenoDetailResponseDTO`), o un código **204 No Content** en caso de operaciones de eliminación.
+5. El Sistema devuelve un código **200 OK** con los datos actualizados del dueño (`DuenoResponseDTO`), o un código **204 No Content** en caso de operaciones de eliminación.
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
@@ -40,7 +40,7 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 
 * **2a. Datos obligatorios incompletos o vacíos (HTTP 400 Bad Request):**
-  1. Si en el Paso 2 faltan campos requeridos como `nombre`, `apellido`, `dni` o `telefono`, o si se ingresan valores solo de espacios en blanco.
+  1. Si en el Paso 2 faltan campos requeridos como `nombre`, `apellido`, `dni`, `telefono` o `email`, o si se ingresan valores solo de espacios en blanco.
   2. La Capa de Presentación detecta la falla de validación (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** con el detalle de campos obligatorios. Fin del caso de uso.
 
@@ -65,8 +65,8 @@ Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) con
   3. El Sistema devuelve un código **500 Internal Server Error**. Fin del caso de uso.
 
 ### 5. SUB-VARIACIONES (opcional)
-1. **Búsqueda por filtro:** Búsqueda textual mediante `GET /api/duenos?criterio={texto}` retornando coincidencias por nombre, apellido o DNI.
-2. **Consulta con detalle de mascotas:** El endpoint `GET /api/duenos/{id}` incluye la lista de mascotas registradas a nombre del cliente.
+1. **Consulta del listado general:** Obtención del padrón completo de dueños registrados mediante `GET /api/duenos` (ordenados por apellido y nombre).
+2. **Consulta individual por identificador:** El endpoint `GET /api/duenos/{id}` retorna los datos registrados del cliente (`DuenoResponseDTO`).
 
 ### 6. POSTCONDICIONES
 - Se actualizan los datos del cliente en la tabla `Duenos`.

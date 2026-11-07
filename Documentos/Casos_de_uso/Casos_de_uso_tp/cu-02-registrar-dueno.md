@@ -18,7 +18,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veterinario) registrar un nuevo dueño en el sistema ingresando sus datos personales y de contacto (nombre, apellido, DNI, teléfono, domicilio y correo electrónico) para que quede disponible y pueda vincularse posteriormente a una o más mascotas.
+Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veterinario) registrar un nuevo dueño en el sistema ingresando sus datos personales y de contacto (nombre, apellido, DNI, teléfono, correo electrónico y dirección opcional) para que quede disponible y pueda vincularse posteriormente a una o más mascotas.
 
 ### 2. PRECONDICIONES
 - El actor debe contar con una sesión activa y un Token JWT válido con rol de `Recepcionista` o `Veterinario` (el Administrador no cuenta con permisos para registrar dueños).
@@ -26,7 +26,7 @@ Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veter
 - El cliente no debe encontrarse registrado previamente con el mismo número de DNI (**RN-05**).
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz - HTTP 201)
-1. El Actor envía una petición al endpoint `POST /api/duenos` con un cuerpo JSON que contiene los datos del dueño (`nombre`, `apellido`, `dni`, `telefono`, `domicilio`, `email`).
+1. El Actor envía una petición al endpoint `POST /api/duenos` con un cuerpo JSON que contiene los datos del dueño (`nombre`, `apellido`, `dni`, `telefono`, `email` y opcionalmente `direccion`).
 2. La **Capa de Presentación** (`DuenosController.CreateDueno`) valida que el JSON sea estructuralmente correcto y que los campos requeridos estén presentes (`[Required]`, `[MaxLength]`, `[EmailAddress]` en `DuenoCreateDTO`).
 3. La **Capa de Negocio** (`DuenoService.CreateDuenoAsync`) normaliza las cadenas de texto aplicando `Trim()`, verifica la regla de negocio **RN-05** comprobando que no exista otro dueño con el mismo DNI (`ExistsByDniAsync`) y construye la entidad `Dueno`.
 4. La **Capa de Persistencia** genera un nuevo identificador único (`Id`) y guarda el registro en la tabla `Duenos`.
@@ -40,7 +40,7 @@ Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veter
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 
 * **2a. Dato obligatorio faltante (HTTP 400 Bad Request):**
-  1. Si en el Paso 2 el JSON no incluye `nombre`, `apellido`, `dni` o `telefono`.
+  1. Si en el Paso 2 el JSON no incluye `nombre`, `apellido`, `dni`, `telefono` o `email`.
   2. La Capa de Presentación detecta la falla de validación (`ModelState.IsValid == false`).
   3. El Sistema devuelve un código **400 Bad Request** detallando el o los campos requeridos faltantes. Fin del caso de uso.
 
@@ -86,7 +86,7 @@ Permite al personal autorizado de la clínica veterinaria (Recepcionista o Veter
 
 ### Nota: Validación vs. Verificación aplicada
 
-- **Validación (Presentación, → 400):** Presencia de campos obligatorios (`nombre`, `apellido`, `dni`, `telefono`), longitudes máximas y formato de correo electrónico mediante DataAnnotations en `DuenoCreateDTO`.
+- **Validación (Presentación, → 400):** Presencia de campos obligatorios (`nombre`, `apellido`, `dni`, `telefono`, `email`), longitudes máximas y formato de correo electrónico mediante DataAnnotations en `DuenoCreateDTO`.
 - **Verificación (Negocio, → 400/409):** Normalización de strings (`Trim()`), verificación de strings de solo espacios (`ValidationException` → 400) y verificación de unicidad de DNI contra la base de datos (**RN-05**, `ExistsByDniAsync` → `DniDuplicadoException` → 409).
 
 ### Matriz de trazabilidad CU-02 → Test

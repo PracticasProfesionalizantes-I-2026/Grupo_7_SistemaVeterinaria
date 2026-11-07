@@ -116,10 +116,78 @@ public class MascotaServiceTests
         await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
     }
 
-    [Fact]
-    public async Task CreateAsync_PesoInvalido_LanzaValidationException()
+    [Theory]
+    [InlineData("macho", "Macho")]
+    [InlineData("  MACHO  ", "Macho")]
+    [InlineData("hembra", "Hembra")]
+    [InlineData("  HEMBRA  ", "Hembra")]
+    public async Task CreateAsync_SexoValidoEnDistintasMayusculasYConEspacios_NormalizaYGuardaCorrectamente(
+        string sexoEntrada, string sexoEsperado)
     {
-        // Arrange
+        // Arrange (VAL-07)
+        var duenoId = Guid.NewGuid();
+        var dueno = new Dueno { Id = duenoId, Nombre = "Carlos", Apellido = "González" };
+        _duenoRepoMock.Setup(r => r.GetByIdAsync(duenoId)).ReturnsAsync(dueno);
+        _mascotaRepoMock.Setup(r => r.CreateAsync(It.IsAny<Mascota>()))
+                        .ReturnsAsync((Mascota m) => { m.Id = Guid.NewGuid(); return m; });
+
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = duenoId,
+            Nombre = "Coco",
+            Especie = "Perro",
+            Raza = "Caniche",
+            Sexo = sexoEntrada,
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 6.5m
+        };
+
+        // Act
+        var result = await _service.CreateAsync(dto);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(sexoEsperado, result.Sexo);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.Is<Mascota>(m => m.Sexo == sexoEsperado)), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("Cualquiera")]
+    [InlineData("Indefinido")]
+    [InlineData("M")]
+    [InlineData("H")]
+    [InlineData("Otro")]
+    public async Task CreateAsync_SexoInvalidoFueraDeCatalogo_LanzaValidationExceptionYSinPersistir(string sexoInvalido)
+    {
+        // Arrange (VAL-07: Solo admite 'Macho' o 'Hembra')
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Coco",
+            Especie = "Perro",
+            Raza = "Caniche",
+            Sexo = sexoInvalido,
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 6.5m
+        };
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        Assert.Contains("sexo", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(0.04)]
+    [InlineData(200.01)]
+    [InlineData(1000)]
+    [InlineData(12.345)]
+    public async Task CreateAsync_PesoInvalidoFueraDeRangoOMasDeDosDecimales_LanzaValidationExceptionYSinPersistir(decimal pesoInvalido)
+    {
+        // Arrange (VAL-02: 0.05 kg a 200 kg, máx 2 decimales)
         var dto = new MascotaCreateDTO
         {
             DuenoId = Guid.NewGuid(),
@@ -128,11 +196,42 @@ public class MascotaServiceTests
             Raza = "Poodle",
             Sexo = "Hembra",
             FechaNacimiento = DateTime.UtcNow.AddYears(-1),
-            Peso = 0 // Invalido
+            Peso = pesoInvalido
         };
 
         // Act & Assert
         await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0.05)]
+    [InlineData(12.34)]
+    [InlineData(200.00)]
+    public async Task CreateAsync_PesoEnLimitesYConDosDecimales_PermiteCreacionSinRedondear(decimal pesoValido)
+    {
+        var duenoId = Guid.NewGuid();
+        var dueno = new Dueno { Id = duenoId, Nombre = "Ana", Apellido = "López" };
+        _duenoRepoMock.Setup(r => r.GetByIdAsync(duenoId)).ReturnsAsync(dueno);
+        _mascotaRepoMock.Setup(r => r.CreateAsync(It.IsAny<Mascota>()))
+                        .ReturnsAsync((Mascota m) => { m.Id = Guid.NewGuid(); return m; });
+
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = duenoId,
+            Nombre = "Mora",
+            Especie = "Gato",
+            Raza = "Común",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-1),
+            Peso = pesoValido
+        };
+
+        var result = await _service.CreateAsync(dto);
+
+        Assert.NotNull(result);
+        Assert.Equal(pesoValido, result.Peso);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.Is<Mascota>(m => m.Peso == pesoValido)), Times.Once);
     }
 
     [Fact]
@@ -150,20 +249,111 @@ public class MascotaServiceTests
         };
 
         await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FechaNacimientoPorDefectoOmitida_LanzaValidationExceptionYSinPersistir()
+    {
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = default, // 0001-01-01
+            Peso = 4.0m
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        Assert.Contains("fecha de nacimiento", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FechaNacimientoIrrealAnio1900_LanzaValidationExceptionYSinPersistir()
+    {
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = new DateTime(1900, 1, 1),
+            Peso = 4.0m
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        Assert.Contains("30 años", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FechaNacimientoMayorA30AniosPorUnDia_LanzaValidationExceptionYSinPersistir()
+    {
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-30).AddDays(-1),
+            Peso = 4.0m
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        Assert.Contains("30 años", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-30)]
+    public async Task CreateAsync_FechaNacimientoEnLimitesValidos_PermiteCreacion(int aniosDesplazamiento)
+    {
+        var duenoId = Guid.NewGuid();
+        var dueno = new Dueno { Id = duenoId, Nombre = "Carlos", Apellido = "Pérez" };
+        _duenoRepoMock.Setup(r => r.GetByIdAsync(duenoId)).ReturnsAsync(dueno);
+        _mascotaRepoMock.Setup(r => r.CreateAsync(It.IsAny<Mascota>()))
+                        .ReturnsAsync((Mascota m) => { m.Id = Guid.NewGuid(); return m; });
+
+        var fechaLimite = DateTime.UtcNow.Date.AddYears(aniosDesplazamiento);
+        var dto = new MascotaCreateDTO
+        {
+            DuenoId = duenoId,
+            Nombre = "Toby",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Macho",
+            FechaNacimiento = fechaLimite,
+            Peso = 8.0m
+        };
+
+        var result = await _service.CreateAsync(dto);
+
+        Assert.NotNull(result);
+        Assert.Equal(fechaLimite, result.FechaNacimiento);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.IsAny<Mascota>()), Times.Once);
     }
 
     [Fact]
     public async Task UpdateAsync_DatosValidos_AplicaTrimYRetornaResponseDTO()
     {
         var mascotaId = Guid.NewGuid();
+        var duenoOriginalId = Guid.NewGuid();
+        var nuevaFechaNacimiento = DateTime.UtcNow.Date.AddYears(-3);
         var mascota = new Mascota
         {
             Id = mascotaId,
-            DuenoId = Guid.NewGuid(),
+            DuenoId = duenoOriginalId,
             Nombre = "ViejoNombre",
             Especie = "Perro",
             Raza = "ViejaRaza",
             Sexo = "Macho",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-1),
             Peso = 10m,
             Activa = true
         };
@@ -171,8 +361,10 @@ public class MascotaServiceTests
         var updateDto = new MascotaUpdateDTO
         {
             Nombre = "  NuevoNombre  ",
+            Especie = "  Gato  ",
             Raza = "  NuevaRaza  ",
             Sexo = "  Hembra  ",
+            FechaNacimiento = nuevaFechaNacimiento,
             Peso = 12.5m,
             Observaciones = "  Actualizado  "
         };
@@ -184,28 +376,217 @@ public class MascotaServiceTests
 
         Assert.NotNull(result);
         Assert.Equal("NuevoNombre", result.Nombre);
+        Assert.Equal("Gato", result.Especie);
         Assert.Equal("NuevaRaza", result.Raza);
         Assert.Equal("Hembra", result.Sexo);
+        Assert.Equal(nuevaFechaNacimiento, result.FechaNacimiento);
         Assert.Equal(12.5m, result.Peso);
         Assert.Equal("Actualizado", result.Observaciones);
+        Assert.Equal(duenoOriginalId, result.DuenoId);
+        Assert.True(result.Activa);
     }
 
     [Theory]
-    [InlineData("", "Raza", "Macho")]
-    [InlineData("   ", "Raza", "Macho")]
-    [InlineData("Nombre", "", "Macho")]
-    [InlineData("Nombre", "Raza", "")]
-    public async Task UpdateAsync_CamposVacios_LanzaValidationException(string nombre, string raza, string sexo)
+    [InlineData("", "Perro", "Raza", "Macho")]
+    [InlineData("   ", "Perro", "Raza", "Macho")]
+    [InlineData("Nombre", "", "Raza", "Macho")]
+    [InlineData("Nombre", "   ", "Raza", "Macho")]
+    [InlineData("Nombre", "Perro", "", "Macho")]
+    [InlineData("Nombre", "Perro", "Raza", "")]
+    public async Task UpdateAsync_CamposVacios_LanzaValidationException(string nombre, string especie, string raza, string sexo)
     {
         var dto = new MascotaUpdateDTO
         {
             Nombre = nombre,
+            Especie = especie,
             Raza = raza,
             Sexo = sexo,
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
             Peso = 10m
         };
 
         await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("macho", "Macho")]
+    [InlineData("  MACHO  ", "Macho")]
+    [InlineData("hembra", "Hembra")]
+    [InlineData("  HEMBRA  ", "Hembra")]
+    public async Task UpdateAsync_SexoValidoEnDistintasMayusculasYConEspacios_NormalizaYActualizaCorrectamente(
+        string sexoEntrada, string sexoEsperado)
+    {
+        // Arrange (VAL-07)
+        var mascotaId = Guid.NewGuid();
+        var mascota = new Mascota
+        {
+            Id = mascotaId,
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Coco",
+            Especie = "Perro",
+            Raza = "Caniche",
+            Sexo = "Macho",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 6.5m,
+            Activa = true
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdTrackedAsync(mascotaId)).ReturnsAsync(mascota);
+        _mascotaRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Mascota>())).ReturnsAsync((Mascota m) => m);
+
+        var dto = new MascotaUpdateDTO
+        {
+            Nombre = "Coco",
+            Especie = "Perro",
+            Raza = "Caniche",
+            Sexo = sexoEntrada,
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 6.5m
+        };
+
+        // Act
+        var result = await _service.UpdateAsync(mascotaId, dto);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(sexoEsperado, result.Sexo);
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.Is<Mascota>(m => m.Sexo == sexoEsperado)), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("Cualquiera")]
+    [InlineData("Indefinido")]
+    [InlineData("M")]
+    [InlineData("H")]
+    [InlineData("Otro")]
+    public async Task UpdateAsync_SexoInvalidoFueraDeCatalogo_LanzaValidationExceptionYSinActualizar(string sexoInvalido)
+    {
+        // Arrange (VAL-07)
+        var dto = new MascotaUpdateDTO
+        {
+            Nombre = "Coco",
+            Especie = "Perro",
+            Raza = "Caniche",
+            Sexo = sexoInvalido,
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 6.5m
+        };
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        Assert.Contains("sexo", ex.Message, StringComparison.OrdinalIgnoreCase);
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EspecieSuperaMaxLength50_LanzaValidationExceptionYSinActualizar()
+    {
+        var dto = new MascotaUpdateDTO
+        {
+            Nombre = "Luna",
+            Especie = new string('E', 51),
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 10m
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FechaNacimientoPorDefectoFuturaOMayorA30Anios_LanzaValidationExceptionYSinActualizar()
+    {
+        var fechasInvalidas = new[]
+        {
+            default(DateTime),
+            DateTime.UtcNow.AddDays(2),
+            new DateTime(1900, 1, 1),
+            DateTime.UtcNow.Date.AddYears(-30).AddDays(-1)
+        };
+
+        foreach (var fechaInvalida in fechasInvalidas)
+        {
+            var dto = new MascotaUpdateDTO
+            {
+                Nombre = "Luna",
+                Especie = "Perro",
+                Raza = "Poodle",
+                Sexo = "Hembra",
+                FechaNacimiento = fechaInvalida,
+                Peso = 10m
+            };
+
+            await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        }
+
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-2)]
+    [InlineData(0.04)]
+    [InlineData(200.01)]
+    [InlineData(500)]
+    [InlineData(8.125)]
+    public async Task UpdateAsync_PesoInvalidoFueraDeRangoOMasDeDosDecimales_LanzaValidationExceptionYSinActualizar(decimal pesoInvalido)
+    {
+        var dto = new MascotaUpdateDTO
+        {
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = pesoInvalido
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Mascota>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(0.05)]
+    [InlineData(15.75)]
+    [InlineData(200.00)]
+    public async Task UpdateAsync_PesoEnLimitesYConDosDecimales_ActualizaCorrectamente(decimal pesoValido)
+    {
+        var mascotaId = Guid.NewGuid();
+        var mascota = new Mascota
+        {
+            Id = mascotaId,
+            DuenoId = Guid.NewGuid(),
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = 10m,
+            Activa = true
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdTrackedAsync(mascotaId)).ReturnsAsync(mascota);
+        _mascotaRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Mascota>())).ReturnsAsync((Mascota m) => m);
+
+        var dto = new MascotaUpdateDTO
+        {
+            Nombre = "Luna",
+            Especie = "Perro",
+            Raza = "Poodle",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-2),
+            Peso = pesoValido
+        };
+
+        var result = await _service.UpdateAsync(mascotaId, dto);
+
+        Assert.NotNull(result);
+        Assert.Equal(pesoValido, result.Peso);
+        _mascotaRepoMock.Verify(r => r.UpdateAsync(It.Is<Mascota>(m => m.Peso == pesoValido)), Times.Once);
     }
 
     [Fact]

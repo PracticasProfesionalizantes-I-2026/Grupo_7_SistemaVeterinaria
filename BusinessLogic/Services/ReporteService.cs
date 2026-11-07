@@ -15,6 +15,15 @@ public class ReporteService : IReporteService
     private readonly IDuenoRepository _duenoRepository;
     private readonly ITurnoRepository _turnoRepository;
 
+    private static readonly string[] TiposReportePermitidos =
+    [
+        "Atenciones",
+        "Vacunaciones",
+        "Mascotas",
+        "Duenos",
+        "Turnos"
+    ];
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -36,33 +45,62 @@ public class ReporteService : IReporteService
 
     public async Task<ReporteResponseDTO> GenerarReporteAsync(GenerarReporteRequestDTO dto, Guid usuarioId, string username)
     {
-        // 1. Validaciones de campos obligatorios
-        if (string.IsNullOrWhiteSpace(dto.Motivo) || dto.TiposReporte == null || !dto.TiposReporte.Any())
+        // 1. Validaciones de campos obligatorios, catálogo de tipos y longitud de motivo (VAL-09)
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Motivo) || dto.TiposReporte == null || !dto.TiposReporte.Any())
         {
             throw new ValidationException("Debe especificar el motivo y al menos un tipo de reporte a generar.");
         }
 
-        // 2. Validación lógica de rango de fechas
+        var motivoNormalizado = dto.Motivo.Trim();
+        if (motivoNormalizado.Length > 200)
+        {
+            throw new ValidationException("El motivo del reporte no puede superar los 200 caracteres.");
+        }
+
+        var tiposNormalizados = new List<string>();
+        foreach (var tipo in dto.TiposReporte)
+        {
+            if (string.IsNullOrWhiteSpace(tipo))
+            {
+                throw new ValidationException("El tipo de reporte especificado no puede ser nulo ni vacío.");
+            }
+
+            var tipoBuscado = tipo.Trim();
+            var tipoCanonico = TiposReportePermitidos.FirstOrDefault(
+                t => string.Equals(t, tipoBuscado, StringComparison.OrdinalIgnoreCase));
+
+            if (tipoCanonico == null)
+            {
+                throw new ValidationException("El tipo de reporte especificado no es válido. Los valores permitidos son: Atenciones, Vacunaciones, Mascotas, Duenos, Turnos.");
+            }
+
+            if (!tiposNormalizados.Contains(tipoCanonico, StringComparer.OrdinalIgnoreCase))
+            {
+                tiposNormalizados.Add(tipoCanonico);
+            }
+        }
+
+        // 2. Validación lógica de rango de fechas (VAL-09)
+        if (dto.FechaDesde == default || dto.FechaHasta == default)
+        {
+            throw new RangoFechasInvalidoException("Las fechas desde y hasta del reporte son obligatorias.");
+        }
+
         if (dto.FechaDesde > dto.FechaHasta)
         {
             throw new RangoFechasInvalidoException("La fecha inicial no puede ser posterior a la fecha final.");
+        }
+
+        var fechaActualUtc = DateTime.UtcNow.Date;
+        if (dto.FechaDesde.Date > fechaActualUtc || dto.FechaHasta.Date > fechaActualUtc)
+        {
+            throw new RangoFechasInvalidoException("El rango de fechas del reporte no puede incluir fechas futuras.");
         }
 
         var desde = dto.FechaDesde;
         var hasta = dto.FechaHasta.TimeOfDay == TimeSpan.Zero
             ? dto.FechaHasta.Date.AddDays(1).AddTicks(-1)
             : dto.FechaHasta;
-
-        var tiposNormalizados = dto.TiposReporte
-            .Select(t => t.Trim())
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (!tiposNormalizados.Any())
-        {
-            throw new ValidationException("Debe especificar el motivo y al menos un tipo de reporte a generar.");
-        }
 
         var detalle = new ReporteDetalleDTO();
         int totalAtenciones = 0;
@@ -195,7 +233,7 @@ public class ReporteService : IReporteService
         // 8. Persistencia histórica inmutable del reporte consolidado
         var nuevoReporte = new Reporte
         {
-            Motivo = dto.Motivo.Trim(),
+            Motivo = motivoNormalizado,
             FechaDesde = dto.FechaDesde,
             FechaHasta = dto.FechaHasta,
             TiposReporteJson = JsonSerializer.Serialize(tiposNormalizados),

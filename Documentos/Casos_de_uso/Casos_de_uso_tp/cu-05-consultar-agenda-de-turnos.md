@@ -20,7 +20,7 @@
 Permite al veterinario o a la recepcionista consultar el listado y cronograma de turnos registrados en el sistema, visualizando la agenda por fecha, horario, mascota, dueño, motivo de consulta, estado del turno y profesional asignado, con capacidad de filtrado multicriterio.
 
 ### 2. PRECONDICIONES
-- El usuario debe haber iniciado sesión y poseer un Token JWT válido con rol de `Recepcionista`, `Veterinario` o `Administrador`.
+- El usuario debe haber iniciado sesión y poseer un Token JWT válido con rol de `Recepcionista` o `Veterinario` (el rol `Administrador` no posee permisos para consultar ni gestionar la agenda de turnos).
 - Deben existir turnos y profesionales registrados en la Capa de Persistencia para visualizar información.
 - La Capa de Persistencia debe encontrarse disponible.
 
@@ -29,7 +29,7 @@ Permite al veterinario o a la recepcionista consultar el listado y cronograma de
 2. La **Capa de Presentación** (`TurnosController.GetAgenda`) valida el formato de las fechas y la coherencia sintáctica de los parámetros de consulta (`AgendaFilterDTO`).
 3. La **Capa de Negocio** (`TurnoService.GetAgendaAsync`) aplica los criterios de búsqueda sobre los turnos del sistema, garantizando que no se modifique el estado de las citas, e incluye la información del dueño, la mascota y el veterinario responsable.
 4. La **Capa de Persistencia** ejecuta la consulta de lectura (`AsNoTracking()`) sobre la tabla `Turnos` resolviendo las relaciones necesarias.
-5. El Sistema devuelve un código **200 OK** con la colección de turnos encontrados (`IEnumerable<TurnoAgendaResponseDTO>`).
+5. El Sistema devuelve un código **200 OK** con la colección de turnos encontrados (`IEnumerable<TurnoResponseDTO>`).
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 

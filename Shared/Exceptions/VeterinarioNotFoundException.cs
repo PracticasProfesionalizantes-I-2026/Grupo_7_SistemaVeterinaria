@@ -3,7 +3,7 @@ namespace Shared.Exceptions;
 public class VeterinarioNotFoundException : Exception
 {
     public VeterinarioNotFoundException(Guid id)
-        : base($"El profesional veterinario con ID '{id}' no fue encontrado, no se encuentra activo o no posee rol de Veterinario.")
+        : base("El profesional veterinario especificado no existe o no se encuentra disponible.")
     {
     }
 

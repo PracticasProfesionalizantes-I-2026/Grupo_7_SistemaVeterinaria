@@ -203,8 +203,10 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
 | `201` | Created | Registro exitoso del nuevo turno médico manual. |
-| `200` | OK | Confirmación de modificación, reprogramación o cancelación exitosa del turno. |
+| `200` | OK | Confirmación de modificación, reprogramación, cancelación exitosa del turno o configuración de disponibilidad. |
 | `400` | Bad Request | Parámetros incompletos, fecha en el pasado, intervalo distinto a 30 minutos, motivo de cancelación vacío o JSON inválido. |
+| `401` | Unauthorized | Solicitud sin token JWT o con reclamos de identidad ausentes/inválidos. |
+| `403` | Forbidden | Rol no autorizado (ej. `Administrador`) o intento de un `Veterinario` de configurar la disponibilidad horaria de otro profesional. |
 | `404` | Not Found | Mascota, dueño o veterinario inexistente en el sistema (RN-06), o turno no encontrado. |
 | `409` | Conflict | Solapamiento de horario (RN-08), horario fuera de disponibilidad del veterinario (RN-10), alteración o cancelación de turno finalizado (RN-09), cancelación de turno ya cancelado, asignación a mascota inactiva (RN-07) o serie crónica ya generada para la atención médica (RN-11). |
 | `500` | Internal Server Error | Falla no controlada de persistencia o comunicación en la base de datos. |
@@ -214,6 +216,7 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 1. **Configuración parametrizable de disponibilidad de veterinarios (RN-10):**
    - La disponibilidad horaria de cada veterinario se almacena de forma configurable en el sistema, no mediante valores fijos en el código.
    - Para cada día de la semana (Lunes a Domingo), se pueden habilitar jornadas de mañana, tarde o ambas, cada una con su horario de inicio y finalización.
+   - **Permisos de configuración:** La `Recepcionista` puede configurar la disponibilidad horaria de cualquier veterinario activo, mientras que un usuario con rol `Veterinario` únicamente puede configurar su propia disponibilidad horaria (validando su identidad desde el token JWT); cualquier intento de modificar la disponibilidad de otro veterinario es rechazado con `403 Forbidden`. El `Administrador` no posee acceso (`403 Forbidden`).
    - Todo turno se asigna estrictamente dentro de los bloques de 30 minutos comprendidos entre el inicio y fin de la jornada habilitada para ese día.
    - Quedan fuera del alcance de esta versión feriados, vacaciones, licencias del personal y excepciones especiales de calendario.
 2. **Liberación de horario y compatibilidad con RN-08:**

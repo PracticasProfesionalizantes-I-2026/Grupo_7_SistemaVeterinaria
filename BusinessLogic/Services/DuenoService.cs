@@ -72,8 +72,18 @@ public class DuenoService : IDuenoService
             throw new DuenoNotFoundException(id);
         }
 
+        var dniNormalizado = dto.Dni.Trim();
+
+        // RN-05 (CU-08): Si el DNI pertenece a otro dueño distinto, lanzar DniDuplicadoException (409 Conflict)
+        var duenoConMismoDni = await _duenoRepository.GetByDniAsync(dniNormalizado);
+        if (duenoConMismoDni != null && duenoConMismoDni.Id != id)
+        {
+            throw new DniDuplicadoException(dniNormalizado);
+        }
+
         dueno.Nombre = dto.Nombre.Trim();
         dueno.Apellido = dto.Apellido.Trim();
+        dueno.Dni = dniNormalizado;
         dueno.Telefono = dto.Telefono.Trim();
         dueno.Email = dto.Email.Trim();
         dueno.Direccion = string.IsNullOrWhiteSpace(dto.Direccion) ? null : dto.Direccion.Trim();
@@ -103,32 +113,64 @@ public class DuenoService : IDuenoService
     {
         if (dto == null)
             throw new ValidationException("La solicitud no puede ser nula.");
-        if (string.IsNullOrWhiteSpace(dto.Nombre))
-            throw new ValidationException("El nombre del dueño es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Apellido))
-            throw new ValidationException("El apellido del dueño es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Dni))
-            throw new ValidationException("El DNI del dueño es obligatorio.");
-        if (!dto.Dni.Trim().All(char.IsDigit))
-            throw new ValidationException("El DNI debe contener únicamente dígitos numéricos.");
-        if (string.IsNullOrWhiteSpace(dto.Telefono))
-            throw new ValidationException("El teléfono de contacto es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Email))
-            throw new ValidationException("El email de contacto es obligatorio.");
-        if (!new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(dto.Email.Trim()))
-            throw new ValidationException("El formato del correo electrónico es inválido.");
+
+        ValidateCamposComunes(dto.Nombre, dto.Apellido, dto.Dni, dto.Telefono, dto.Email, dto.Direccion);
     }
 
     private static void ValidateUpdateDto(DuenoUpdateDTO dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Nombre))
+        if (dto == null)
+            throw new ValidationException("La solicitud no puede ser nula.");
+
+        ValidateCamposComunes(dto.Nombre, dto.Apellido, dto.Dni, dto.Telefono, dto.Email, dto.Direccion);
+    }
+
+    private static void ValidateCamposComunes(
+        string? nombre,
+        string? apellido,
+        string? dni,
+        string? telefono,
+        string? email,
+        string? direccion)
+    {
+        if (string.IsNullOrWhiteSpace(nombre))
             throw new ValidationException("El nombre del dueño es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Apellido))
+        if (nombre.Trim().Length > 100)
+            throw new ValidationException("El nombre no puede superar los 100 caracteres.");
+
+        if (string.IsNullOrWhiteSpace(apellido))
             throw new ValidationException("El apellido del dueño es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Telefono))
+        if (apellido.Trim().Length > 100)
+            throw new ValidationException("El apellido no puede superar los 100 caracteres.");
+
+        if (string.IsNullOrWhiteSpace(dni))
+            throw new ValidationException("El DNI del dueño es obligatorio.");
+        var dniTrimmed = dni.Trim();
+        if (!dniTrimmed.All(char.IsDigit))
+            throw new ValidationException("El DNI debe contener únicamente dígitos numéricos.");
+        if (dniTrimmed.Length < 7 || dniTrimmed.Length > 10)
+            throw new ValidationException("El DNI debe tener entre 7 y 10 dígitos numéricos.");
+
+        if (string.IsNullOrWhiteSpace(telefono))
             throw new ValidationException("El teléfono de contacto es obligatorio.");
-        if (string.IsNullOrWhiteSpace(dto.Email))
+        var telefonoTrimmed = telefono.Trim();
+        if (telefonoTrimmed.Length > 30)
+            throw new ValidationException("El teléfono no puede superar los 30 caracteres.");
+        if (!telefonoTrimmed.All(c => char.IsDigit(c) || c == ' ' || c == '-' || c == '+' || c == '(' || c == ')'))
+            throw new ValidationException("El teléfono contiene caracteres inválidos.");
+        if (telefonoTrimmed.Count(char.IsDigit) < 6)
+            throw new ValidationException("El teléfono debe contener al menos 6 dígitos numéricos.");
+
+        if (string.IsNullOrWhiteSpace(email))
             throw new ValidationException("El email de contacto es obligatorio.");
+        var emailTrimmed = email.Trim();
+        if (emailTrimmed.Length > 150)
+            throw new ValidationException("El email no puede superar los 150 caracteres.");
+        if (!new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(emailTrimmed))
+            throw new ValidationException("El formato del correo electrónico es inválido.");
+
+        if (direccion != null && direccion.Trim().Length > 200)
+            throw new ValidationException("La dirección no puede superar los 200 caracteres.");
     }
 
     private DuenoResponseDTO MapToResponseDTO(Dueno dueno)

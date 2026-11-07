@@ -78,14 +78,14 @@ public class DuenoServiceTests
     }
 
     [Theory]
-    [InlineData("", "Pérez", "12345678", "111", "email@test.com")]
-    [InlineData("Juan", "", "12345678", "111", "email@test.com")]
-    [InlineData("Juan", "Pérez", "", "111", "email@test.com")]
+    [InlineData("", "Pérez", "12345678", "11-2233-4455", "email@test.com")]
+    [InlineData("Juan", "", "12345678", "11-2233-4455", "email@test.com")]
+    [InlineData("Juan", "Pérez", "", "11-2233-4455", "email@test.com")]
     [InlineData("Juan", "Pérez", "12345678", "", "email@test.com")]
-    [InlineData("Juan", "Pérez", "12345678", "111", "")]
-    [InlineData("   ", "Pérez", "12345678", "111", "email@test.com")]
-    [InlineData("Juan", "   ", "12345678", "111", "email@test.com")]
-    [InlineData("Juan", "Pérez", "   ", "111", "email@test.com")]
+    [InlineData("Juan", "Pérez", "12345678", "11-2233-4455", "")]
+    [InlineData("   ", "Pérez", "12345678", "11-2233-4455", "email@test.com")]
+    [InlineData("Juan", "   ", "12345678", "11-2233-4455", "email@test.com")]
+    [InlineData("Juan", "Pérez", "   ", "11-2233-4455", "email@test.com")]
     public async Task CreateAsync_CamposVaciosOEspacios_LanzaValidationException(
         string nombre, string apellido, string dni, string tel, string email)
     {
@@ -101,24 +101,68 @@ public class DuenoServiceTests
 
         // Act & Assert
         await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _duenoRepoMock.Verify(r => r.CreateAsync(It.IsAny<Dueno>()), Times.Never);
     }
 
-    [Fact]
-    public async Task CreateAsync_DniNoNumerico_LanzaValidationException()
+    [Theory]
+    [InlineData("1")]
+    [InlineData("123456")]
+    [InlineData("12345678901")]
+    [InlineData("30A12345")]
+    public async Task CreateAsync_DniInvalidoPorFormatoOLongitud_LanzaValidationExceptionYSinPersistir(string dniInvalido)
     {
-        // Arrange (CU-02 Flujo 2b)
+        // Arrange (VAL-05: DNI solo numérico de 7 a 10 dígitos)
         var dto = new DuenoCreateDTO
         {
             Nombre = "Juan",
             Apellido = "Pérez",
-            Dni = "30A12345",
+            Dni = dniInvalido,
             Telefono = "11-2233-4455",
             Email = "juan@example.com"
         };
 
         // Act & Assert
-        var ex = await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
-        Assert.Contains("numéricos", ex.Message);
+        await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _duenoRepoMock.Verify(r => r.CreateAsync(It.IsAny<Dueno>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("123")]
+    [InlineData("12345")]
+    [InlineData("11-ABCD-1234")]
+    [InlineData("telefono_invalido")]
+    [InlineData("+54 9 11 1234-567890123456789012345")]
+    public async Task CreateAsync_TelefonoInvalido_LanzaValidationExceptionYSinPersistir(string telefonoInvalido)
+    {
+        // Arrange (VAL-05: Teléfono máx 30 caracteres, mín 6 dígitos y solo caracteres telefónicos)
+        var dto = new DuenoCreateDTO
+        {
+            Nombre = "Juan",
+            Apellido = "Pérez",
+            Dni = "30123456",
+            Telefono = telefonoInvalido,
+            Email = "juan@example.com"
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _duenoRepoMock.Verify(r => r.CreateAsync(It.IsAny<Dueno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SuperaMaxLength_LanzaValidationExceptionYSinPersistir()
+    {
+        var dto = new DuenoCreateDTO
+        {
+            Nombre = new string('A', 101),
+            Apellido = "Pérez",
+            Dni = "30123456",
+            Telefono = "11-2233-4455",
+            Email = "juan@example.com"
+        };
+
+        await Assert.ThrowsAsync<ValidationException>(() => _service.CreateAsync(dto));
+        _duenoRepoMock.Verify(r => r.CreateAsync(It.IsAny<Dueno>()), Times.Never);
     }
 
     [Fact]
@@ -220,5 +264,117 @@ public class DuenoServiceTests
         // Assert
         Assert.True(result);
         _duenoRepoMock.Verify(r => r.DeleteAsync(id), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConservandoMismoDniOActualizandoADniLibre_ActualizaCorrectamente()
+    {
+        // Arrange (BUG-02: Permitir conservar el propio DNI o cambiar a uno libre)
+        var id = Guid.NewGuid();
+        var duenoExistente = new Dueno
+        {
+            Id = id,
+            Nombre = "Roberto",
+            Apellido = "Sánchez",
+            Dni = "30111222",
+            Telefono = "11-2233-4455",
+            Email = "roberto@test.com"
+        };
+
+        _duenoRepoMock.Setup(r => r.GetByIdTrackedAsync(id)).ReturnsAsync(duenoExistente);
+        _duenoRepoMock.Setup(r => r.GetByDniAsync("30999888")).ReturnsAsync((Dueno?)null);
+        _duenoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Dueno>())).ReturnsAsync((Dueno d) => d);
+
+        var dto = new DuenoUpdateDTO
+        {
+            Nombre = "  Roberto Carlos  ",
+            Apellido = "  Sánchez  ",
+            Dni = "  30999888  ",
+            Telefono = "  +54 9 11 4455-6677  ",
+            Email = "  roberto.nuevo@test.com  ",
+            Direccion = "  Av. Rivadavia 1234  "
+        };
+
+        // Act
+        var result = await _service.UpdateAsync(id, dto);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Roberto Carlos", result.Nombre);
+        Assert.Equal("30999888", result.Dni);
+        Assert.Equal("+54 9 11 4455-6677", result.Telefono);
+        Assert.Equal("roberto.nuevo@test.com", result.Email);
+        _duenoRepoMock.Verify(r => r.UpdateAsync(It.Is<Dueno>(d => d.Dni == "30999888")), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DniPertenecienteAOtroDueno_LanzaDniDuplicadoExceptionYSinModificar()
+    {
+        // Arrange (BUG-02 / RN-05: Si el nuevo DNI pertenece a otro dueño, lanzar DniDuplicadoException)
+        var idDuenoActual = Guid.NewGuid();
+        var idOtroDueno = Guid.NewGuid();
+
+        var duenoActual = new Dueno
+        {
+            Id = idDuenoActual,
+            Nombre = "Roberto",
+            Apellido = "Sánchez",
+            Dni = "30111222",
+            Telefono = "11-2233-4455",
+            Email = "roberto@test.com"
+        };
+
+        var otroDueno = new Dueno
+        {
+            Id = idOtroDueno,
+            Nombre = "Carlos",
+            Apellido = "González",
+            Dni = "34567890"
+        };
+
+        _duenoRepoMock.Setup(r => r.GetByIdTrackedAsync(idDuenoActual)).ReturnsAsync(duenoActual);
+        _duenoRepoMock.Setup(r => r.GetByDniAsync("34567890")).ReturnsAsync(otroDueno);
+
+        var dto = new DuenoUpdateDTO
+        {
+            Nombre = "Roberto",
+            Apellido = "Sánchez",
+            Dni = "34567890", // Pertenece a otroDueno
+            Telefono = "11-2233-4455",
+            Email = "roberto@test.com"
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<DniDuplicadoException>(() => _service.UpdateAsync(idDuenoActual, dto));
+        Assert.Equal("30111222", duenoActual.Dni);
+        _duenoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Dueno>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("", "Apellido", "30123456", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "", "30123456", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "123", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "12345678901", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "30A12345", "11-2233-4455", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "30123456", "123", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "30123456", "tel-invalido", "valido@test.com")]
+    [InlineData("Nombre", "Apellido", "30123456", "11-2233-4455", "email-sin-arroba")]
+    public async Task UpdateAsync_DatosInvalidos_LanzaValidationExceptionYSinModificar(
+        string nombre, string apellido, string dni, string tel, string email)
+    {
+        // Arrange (VAL-04 y VAL-05 en modificación)
+        var dto = new DuenoUpdateDTO
+        {
+            Nombre = nombre,
+            Apellido = apellido,
+            Dni = dni,
+            Telefono = tel,
+            Email = email
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ValidationException>(() => _service.UpdateAsync(Guid.NewGuid(), dto));
+        _duenoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Dueno>()), Times.Never);
     }
 }

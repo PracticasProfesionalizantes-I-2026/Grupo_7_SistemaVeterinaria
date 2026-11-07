@@ -100,7 +100,7 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
    - Persiste en la tabla `Turnos` la serie de turnos de seguimiento generados vinculados a la `AtencionMedicaId` (**RN-11**).
 5. El Sistema devuelve un código **201 Created** con el detalle completo de la atención registrada (`AtencionMedicaResponseDTO`), incluyendo:
    - Identificador generado de la atención e identificación del profesional autenticado.
-   - Datos clínicos, peso registrado y resultado de la alerta de desnutrición (`alertaDesnutricion`, `porcentajeDisminucionPeso`, `pesoReferenciaUtilizado`, `mensajeAlerta`).
+   - Datos clínicos, peso registrado y resultado de la alerta de desnutrición (`alertaDesnutricion`, `porcentajeDisminucionPeso`, `pesoReferenciaUtilizado`, `mensajeAlertaDesnutricion`).
    - Confirmación de la fecha de última visita actualizada en la mascota.
    - Detalle de prescripciones, estudios y procedimiento quirúrgico registrados.
    - Resultado de aptitud y vacunas aplicadas (si correspondió).

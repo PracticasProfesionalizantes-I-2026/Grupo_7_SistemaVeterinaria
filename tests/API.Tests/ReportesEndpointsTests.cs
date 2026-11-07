@@ -315,4 +315,107 @@ public class ReportesEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    [Fact]
+    public async Task GenerarReporte_TiposNormalizadosConMayusculasYEspacios_Retorna201CreatedYPersisteNombresCanonicos()
+    {
+        // Arrange (VAL-09)
+        var token = await ObtenerTokenAsync("admin", "Admin1234!");
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/reportes/generar")
+        {
+            Content = JsonContent.Create(new GenerarReporteRequestDTO
+            {
+                Motivo = "  Reporte de prueba normalizado  ",
+                TiposReporte = new List<string> { "  atenciones ", "VACUNACIONES", " duenos " },
+                FechaDesde = DateTime.UtcNow.AddDays(-15),
+                FechaHasta = DateTime.UtcNow
+            })
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Act
+        var response = await _client.SendAsync(request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creado = await response.Content.ReadFromJsonAsync<ReporteResponseDTO>();
+        Assert.NotNull(creado);
+        Assert.Equal("Reporte de prueba normalizado", creado.Motivo);
+        Assert.Equal(new[] { "Atenciones", "Vacunaciones", "Duenos" }, creado.TiposReporte);
+    }
+
+    [Fact]
+    public async Task GenerarReporte_ValidacionesVal09Fallidas_Retornan400BadRequest_SinPersistirReporte()
+    {
+        // Arrange (VAL-09)
+        var token = await ObtenerTokenAsync("admin", "Admin1234!");
+
+        var getBeforeReq = new HttpRequestMessage(HttpMethod.Get, "/api/reportes");
+        getBeforeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var beforeRes = await _client.SendAsync(getBeforeReq);
+        var reportesAntes = await beforeRes.Content.ReadFromJsonAsync<List<ReporteResumenDTO>>();
+        var cantidadAntes = reportesAntes?.Count ?? 0;
+
+        var solicitudesInvalidas = new List<GenerarReporteRequestDTO>
+        {
+            // 1. Tipo de reporte fuera de catálogo
+            new GenerarReporteRequestDTO
+            {
+                Motivo = "Motivo válido Val09",
+                TiposReporte = new List<string> { "Ventas" },
+                FechaDesde = DateTime.UtcNow.AddDays(-5),
+                FechaHasta = DateTime.UtcNow
+            },
+            // 2. Tipo de reporte vacío dentro de la lista
+            new GenerarReporteRequestDTO
+            {
+                Motivo = "Motivo válido Val09",
+                TiposReporte = new List<string> { "Atenciones", "   " },
+                FechaDesde = DateTime.UtcNow.AddDays(-5),
+                FechaHasta = DateTime.UtcNow
+            },
+            // 3. FechaDesde default(DateTime)
+            new GenerarReporteRequestDTO
+            {
+                Motivo = "Motivo válido Val09",
+                TiposReporte = new List<string> { "Atenciones" },
+                FechaDesde = default,
+                FechaHasta = DateTime.UtcNow
+            },
+            // 4. FechaHasta futura
+            new GenerarReporteRequestDTO
+            {
+                Motivo = "Motivo válido Val09",
+                TiposReporte = new List<string> { "Atenciones" },
+                FechaDesde = DateTime.UtcNow.AddDays(-5),
+                FechaHasta = DateTime.UtcNow.Date.AddDays(2)
+            },
+            // 5. Motivo mayor a 200 caracteres
+            new GenerarReporteRequestDTO
+            {
+                Motivo = new string('M', 201),
+                TiposReporte = new List<string> { "Atenciones" },
+                FechaDesde = DateTime.UtcNow.AddDays(-5),
+                FechaHasta = DateTime.UtcNow
+            }
+        };
+
+        foreach (var dtoInvalido in solicitudesInvalidas)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/api/reportes/generar")
+            {
+                Content = JsonContent.Create(dtoInvalido)
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var res = await _client.SendAsync(req);
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+
+        // Confirmar que ningún reporte inválido fue persistido
+        var getAfterReq = new HttpRequestMessage(HttpMethod.Get, "/api/reportes");
+        getAfterReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var afterRes = await _client.SendAsync(getAfterReq);
+        var reportesDespues = await afterRes.Content.ReadFromJsonAsync<List<ReporteResumenDTO>>();
+        Assert.Equal(cantidadAntes, reportesDespues?.Count ?? 0);
+    }
 }
