@@ -3,6 +3,7 @@ using BusinessLogic.Interfaces;
 using DataAccess.Entities;
 using DataAccess.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Shared.DTOs.AtencionMedica;
 using Shared.DTOs.Turno;
 using Shared.Exceptions;
@@ -241,125 +242,100 @@ public class AtencionMedicaService : IAtencionMedicaService
             }
         }
 
-        // 5. Persistencia atómica de la atención y actualización de última visita (INF-07)
-        var atencionCreada = await _atencionMedicaRepository.CreateAsync(nuevaAtencion);
-        atencionCreada.Mascota ??= mascota;
-
-        // 6. Nivel 3: Seguimiento de enfermedades crónicas (RN-11 / CU-06)
-        List<TurnoResponseDTO> turnosSeguimiento = new();
-        List<DateTime> fechasPendientesManual = new();
-        string? mensajeSeguimiento = null;
-
-        if (dto.SeguimientoCronico != null && _turnoService != null)
+        // 5. Persistencia atómica de la atención, última visita y seguimiento crónico en una única transacción de EF Core
+        var transaction = await _atencionMedicaRepository.BeginTransactionAsync();
+        try
         {
-            bool yaTieneTurnos = await _atencionMedicaRepository.HasTurnosSeguimientoAsync(atencionCreada.Id);
-            if (!yaTieneTurnos)
-            {
-                var cronicosDTO = new GenerarTurnosCronicosDTO
-                {
-                    MascotaId = atencionCreada.MascotaId,
-                    VeterinarioId = veterinarioId ?? atencionCreada.VeterinarioId ?? Guid.Empty,
-                    AtencionMedicaId = atencionCreada.Id,
-                    FechaAtencion = atencionCreada.Fecha,
-                    Frecuencia = dto.SeguimientoCronico.Frecuencia.Trim(),
-                    JornadaPreferida = dto.SeguimientoCronico.JornadaPreferida.Trim()
-                };
+            var atencionCreada = await _atencionMedicaRepository.CreateAsync(nuevaAtencion);
+            atencionCreada.Mascota ??= mascota;
 
-                // 1. Verificación tipada e inequívoca de disponibilidad configurada antes de generar turnos
-                var disponibilidades = await _turnoService.GetDisponibilidadVeterinarioAsync(cronicosDTO.VeterinarioId);
-                if (disponibilidades != null && !disponibilidades.Any())
+            // 6. Nivel 3: Seguimiento de enfermedades crónicas (RN-11 / CU-06)
+            List<TurnoResponseDTO> turnosSeguimiento = new();
+            List<DateTime> fechasPendientesManual = new();
+            string? mensajeSeguimiento = null;
+
+            if (dto.SeguimientoCronico != null && _turnoService != null)
+            {
+                bool yaTieneTurnos = await _atencionMedicaRepository.HasTurnosSeguimientoAsync(atencionCreada.Id);
+                if (!yaTieneTurnos)
                 {
-                    // Falta total de disponibilidad configurada: se marcan todas las fechas ideales para coordinación manual sin bloquear 201 Created
-                    var fechasIdeales = CalcularFechasIdeales(atencionCreada.Fecha, dto.SeguimientoCronico.Frecuencia);
-                    fechasPendientesManual = fechasIdeales;
-                    mensajeSeguimiento = $"Advertencia: La atención médica fue registrada con éxito (Id: {atencionCreada.Id}). El profesional no cuenta con horarios de disponibilidad configurados en la agenda. Se marcaron {fechasPendientesManual.Count} fecha(s) para coordinación manual con recepción.";
-                }
-                else
-                {
-                    try
+                    var cronicosDTO = new GenerarTurnosCronicosDTO
+                    {
+                        MascotaId = atencionCreada.MascotaId,
+                        VeterinarioId = veterinarioId ?? atencionCreada.VeterinarioId ?? Guid.Empty,
+                        AtencionMedicaId = atencionCreada.Id,
+                        FechaAtencion = atencionCreada.Fecha,
+                        Frecuencia = dto.SeguimientoCronico.Frecuencia.Trim(),
+                        JornadaPreferida = dto.SeguimientoCronico.JornadaPreferida.Trim()
+                    };
+
+                    // Verificación de disponibilidad configurada antes de generar turnos
+                    var disponibilidades = await _turnoService.GetDisponibilidadVeterinarioAsync(cronicosDTO.VeterinarioId);
+                    if (disponibilidades != null && !disponibilidades.Any())
+                    {
+                        // Falta total de disponibilidad configurada: se marcan todas las fechas ideales para coordinación manual sin bloquear 201 Created
+                        var fechasIdeales = CalcularFechasIdeales(atencionCreada.Fecha, dto.SeguimientoCronico.Frecuencia);
+                        fechasPendientesManual = fechasIdeales;
+                        mensajeSeguimiento = $"Advertencia: La atención médica fue registrada con éxito (Id: {atencionCreada.Id}). El profesional no cuenta con horarios de disponibilidad configurados en la agenda. Se marcaron {fechasPendientesManual.Count} fecha(s) para coordinación manual con recepción.";
+                    }
+                    else
                     {
                         var respCronicos = await _turnoService.GenerarTurnosSeguimientoCronicoAsync(cronicosDTO);
                         turnosSeguimiento = respCronicos.TurnosGenerados;
                         fechasPendientesManual = respCronicos.FechasPendientes;
                         mensajeSeguimiento = respCronicos.Mensaje;
                     }
-                    catch (Exception ex) when (ex is DbUpdateException or DbException or TimeoutException)
-                    {
-                        // Resiliencia: La atención médica ya fue persistida atómicamente con éxito en la base de datos (RN-01, INF-07).
-                        // Se capturan exclusivamente fallas operativas recuperables de base de datos o conectividad (DbUpdateException, DbException, TimeoutException).
-                        // Comprobamos el estado real de la base de datos para no duplicar ni perder información.
-                        var atencionActualizada = await _atencionMedicaRepository.GetByIdAsync(atencionCreada.Id);
-                        if (atencionActualizada?.TurnosSeguimiento != null && atencionActualizada.TurnosSeguimiento.Any())
-                        {
-                            turnosSeguimiento = atencionActualizada.TurnosSeguimiento.Select(t => new TurnoResponseDTO
-                            {
-                                Id = t.Id,
-                                MascotaId = t.MascotaId,
-                                MascotaNombre = atencionCreada.Mascota?.Nombre ?? string.Empty,
-                                DuenoId = atencionCreada.Mascota?.DuenoId ?? Guid.Empty,
-                                DuenoNombreCompleto = atencionCreada.Mascota?.Dueno != null ? $"{atencionCreada.Mascota.Dueno.Nombre} {atencionCreada.Mascota.Dueno.Apellido}".Trim() : string.Empty,
-                                VeterinarioId = t.VeterinarioId,
-                                VeterinarioNombreCompleto = t.Veterinario?.Username ?? atencionCreada.Veterinario?.Username ?? string.Empty,
-                                AtencionMedicaId = t.AtencionMedicaId,
-                                FechaHora = t.FechaHora,
-                                MotivoConsulta = t.MotivoConsulta,
-                                Estado = t.Estado,
-                                EsAutomatico = t.EsAutomatico,
-                                TipoOrigen = t.TipoOrigen,
-                                FechaCreacion = t.FechaCreacion
-                            }).ToList();
-                        }
-
-                        var fechasIdeales = CalcularFechasIdeales(atencionCreada.Fecha, dto.SeguimientoCronico.Frecuencia);
-                        if (fechasIdeales.Any())
-                        {
-                            var fechasYaAsignadas = turnosSeguimiento.Select(t => t.FechaHora.Date).ToHashSet();
-                            fechasPendientesManual = fechasIdeales.Where(f => !fechasYaAsignadas.Contains(f.Date)).ToList();
-                            mensajeSeguimiento = $"Advertencia: La atención médica fue registrada con éxito (Id: {atencionCreada.Id}), pero ocurrió una falla técnica al persistir automáticamente los turnos de seguimiento crónico. Quedan {fechasPendientesManual.Count} fecha(s) pendientes de coordinación manual con recepción.";
-                        }
-                        else
-                        {
-                            fechasPendientesManual = new List<DateTime>();
-                            mensajeSeguimiento = $"Advertencia: La atención médica fue registrada con éxito (Id: {atencionCreada.Id}), pero la programación automática de turnos no pudo completarse. El estado de la agenda requiere verificación manual por el personal de recepción.";
-                        }
-                    }
                 }
-            }
-            else
-            {
-                // Si la serie ya fue generada previamente para esta atención, recuperamos los turnos existentes para evitar duplicación
-                var atencionExistente = await _atencionMedicaRepository.GetByIdAsync(atencionCreada.Id);
-                if (atencionExistente?.TurnosSeguimiento != null && atencionExistente.TurnosSeguimiento.Any())
+                else
                 {
-                    turnosSeguimiento = atencionExistente.TurnosSeguimiento.Select(t => new TurnoResponseDTO
+                    // Si la serie ya fue generada previamente para esta atención, recuperamos los turnos existentes para evitar duplicación
+                    var atencionExistente = await _atencionMedicaRepository.GetByIdAsync(atencionCreada.Id);
+                    if (atencionExistente?.TurnosSeguimiento != null && atencionExistente.TurnosSeguimiento.Any())
                     {
-                        Id = t.Id,
-                        MascotaId = t.MascotaId,
-                        MascotaNombre = atencionCreada.Mascota?.Nombre ?? string.Empty,
-                        DuenoId = atencionCreada.Mascota?.DuenoId ?? Guid.Empty,
-                        DuenoNombreCompleto = atencionCreada.Mascota?.Dueno != null ? $"{atencionCreada.Mascota.Dueno.Nombre} {atencionCreada.Mascota.Dueno.Apellido}".Trim() : string.Empty,
-                        VeterinarioId = t.VeterinarioId,
-                        VeterinarioNombreCompleto = t.Veterinario?.Username ?? atencionCreada.Veterinario?.Username ?? string.Empty,
-                        AtencionMedicaId = t.AtencionMedicaId,
-                        FechaHora = t.FechaHora,
-                        MotivoConsulta = t.MotivoConsulta,
-                        Estado = t.Estado,
-                        EsAutomatico = t.EsAutomatico,
-                        TipoOrigen = t.TipoOrigen,
-                        FechaCreacion = t.FechaCreacion
-                    }).ToList();
+                        turnosSeguimiento = atencionExistente.TurnosSeguimiento.Select(t => new TurnoResponseDTO
+                        {
+                            Id = t.Id,
+                            MascotaId = t.MascotaId,
+                            MascotaNombre = atencionCreada.Mascota?.Nombre ?? string.Empty,
+                            DuenoId = atencionCreada.Mascota?.DuenoId ?? Guid.Empty,
+                            DuenoNombreCompleto = atencionCreada.Mascota?.Dueno != null ? $"{atencionCreada.Mascota.Dueno.Nombre} {atencionCreada.Mascota.Dueno.Apellido}".Trim() : string.Empty,
+                            VeterinarioId = t.VeterinarioId,
+                            VeterinarioNombreCompleto = t.Veterinario?.Username ?? atencionCreada.Veterinario?.Username ?? string.Empty,
+                            AtencionMedicaId = t.AtencionMedicaId,
+                            FechaHora = t.FechaHora,
+                            MotivoConsulta = t.MotivoConsulta,
+                            Estado = t.Estado,
+                            EsAutomatico = t.EsAutomatico,
+                            TipoOrigen = t.TipoOrigen,
+                            FechaCreacion = t.FechaCreacion
+                        }).ToList();
+                    }
                     mensajeSeguimiento = "La atención médica ya contaba con una serie de turnos de seguimiento crónico registrada previamente.";
                 }
             }
-        }
 
-        return MapToResponseDTO(
-            atencionCreada, 
-            turnosSeguimiento, 
-            fechasPendientesManual, 
-            mensajeSeguimiento, 
-            mensajeAlertaDesnutricion,
-            veterinarioNombre);
+            await _atencionMedicaRepository.CommitTransactionAsync(transaction);
+
+            return MapToResponseDTO(
+                atencionCreada, 
+                turnosSeguimiento, 
+                fechasPendientesManual, 
+                mensajeSeguimiento, 
+                mensajeAlertaDesnutricion,
+                veterinarioNombre);
+        }
+        catch
+        {
+            await _atencionMedicaRepository.RollbackTransactionAsync(transaction);
+            throw;
+        }
+        finally
+        {
+            if (transaction != null)
+            {
+                await transaction.DisposeAsync();
+            }
+        }
     }
 
     // RN-01: Inmutabilidad de las atenciones médicas (no modificable)

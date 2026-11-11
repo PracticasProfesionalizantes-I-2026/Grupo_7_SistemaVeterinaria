@@ -5,6 +5,8 @@
 > Incorpora la identificación obligatoria del profesional veterinario a partir de la sesión autenticada (claims del token JWT), impidiendo su asignación libre o manual.
 > Incorpora la detección clínica y registro histórico de la alerta de desnutrición (Nivel 1 / RN-12) ante disminuciones de peso estrictamente superiores al 10 % respecto al peso de referencia, con carácter informativo y no bloqueante.
 > Incorpora la especificación funcional definitiva sobre vacunación y aptitud clínica in situ: la condición de APTO tiene validez exclusiva para esa atención y ese mismo día, sin requerir entidad independiente de alta médica ni cómputo de vencimientos.
+> Incorpora la garantía de atomicidad transaccional (CU-04 / RN-11): todas las escrituras (atención médica, procedimientos quirúrgicos, prescripciones, estudios, última visita y turnos de seguimiento crónico) se ejecutan dentro de una única transacción de Entity Framework Core; cualquier fallo revierte íntegramente las operaciones sin escrituras parciales.
+> Incorpora la independencia estricta entre atenciones médicas y turnos de consulta: las atenciones no requieren turno previo, carecen de `TurnoId` y no finalizan turnos automáticamente, conservando `AtencionMedicaId` en turnos de seguimiento exclusivamente como referencia de origen.
 > Incorpora la activación del servicio interno de seguimiento de enfermedades crónicas (Nivel 3 / CU-06 / RN-11) con tolerancia ante falta de cupos (reporte de fechas pendientes para coordinación manual sin bloquear el guardado de la atención).
 > Incorpora el control de navegación y advertencia de cambios sin guardar (INF-04).
 > Incorpora el registro opcional de procedimientos quirúrgicos dentro de la atención médica y explicita la exclusión de consentimiento digital y firma en la primera entrega (INF-06).
@@ -32,7 +34,16 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 
 **Nivel 1: Alerta de desnutrición (RN-12):** Durante el examen físico se registra el peso de la mascota. El sistema compara automáticamente dicho peso con el peso registrado en la atención médica inmediatamente anterior del paciente. Si la mascota no posee atenciones médicas previas, el sistema utiliza como base comparativa el peso de referencia consignado en la ficha de la mascota (`Mascota.Peso`), cuando sea un valor válido (> 0). Si no existe un peso anterior válido, el sistema no calcula variación ni genera alerta. Cuando la disminución de peso resulte estrictamente superior al 10 % respecto al peso de referencia, el sistema activa automáticamente la alerta de desnutrición (`AlertaDesnutricion = true`), la cual se conserva de manera inmutable como parte del registro histórico de la atención médica. El sistema informa el porcentaje exacto de disminución y el peso de referencia utilizado. La activación de esta alerta cumple una función clínico-preventiva y **no impide guardar la atención médica**.
 
-**Nivel 3: Seguimiento de enfermedades crónicas (RN-11 / CU-06):** Cuando el veterinario registre un diagnóstico de enfermedad crónica, podrá indicar en el mismo acto la frecuencia de seguimiento (`Quincenal`, `Mensual`, `Bimestral`, `Trimestral`) y la jornada preferida del dueño (`Manana`, `Tarde`, `Indistinta`). Al confirmarse el guardado de la atención médica, el sistema activa internamente el servicio de generación de turnos ya desarrollado en el CU-06, generando una serie de turnos de seguimiento con estado `Pendiente` a lo largo de los seis (6) meses posteriores a la consulta, respetando estrictamente las disponibilidades configuradas del profesional y los bloques de 30 minutos sin solapamiento (RN-08, RN-10). Los turnos generados quedan vinculados a la atención médica que originó el seguimiento (`AtencionMedicaId`). Si en alguna de las fechas proyectadas no se encuentra disponibilidad dentro de la ventana de búsqueda (7 días) y en la jornada preferida, el sistema registrará todos los turnos que sí pudieron asignarse e informará cuáles fechas quedaron pendientes de coordinación manual. **La falta total o parcial de disponibilidad de horarios no impedirá guardar la atención médica**.
+**Nivel 3: Seguimiento de enfermedades crónicas y atomicidad transaccional (RN-11 / CU-06):** Cuando el veterinario registre un diagnóstico de enfermedad crónica, podrá indicar en el mismo acto la frecuencia de seguimiento (`Quincenal`, `Mensual`, `Bimestral`, `Trimestral`) y la jornada preferida del dueño (`Manana`, `Tarde`, `Indistinta`). Al confirmarse el guardado, el sistema ejecuta todas las operaciones de escritura dentro de una **única transacción indivisible de Entity Framework Core (`VeterinariaDbContext`)**:
+1. Persistencia de la atención médica y sus entidades clínicas vinculadas (procedimientos quirúrgicos, prescripciones, estudios y vacunas).
+2. Actualización de la fecha de última visita en la ficha de la mascota (sin retroceso).
+3. Invocación interna al servicio de turnos (CU-06) para generar y persistir la serie de turnos de seguimiento con estado inicial `Pendiente` a lo largo de seis meses, respetando las disponibilidades configuradas del profesional en bloques de 30 minutos sin solapamiento (**RN-08**, **RN-10**), vinculándolos mediante `AtencionMedicaId`.
+
+Si ocurre cualquier excepción o fallo técnico durante el guardado de la atención o durante la persistencia de los turnos de seguimiento, **la transacción se revierte por completo (`Rollback`)**, evitando la creación de atenciones huérfanas sin seguimiento o escrituras parciales. Si no se indica enfermedad crónica, la atención y la actualización de última visita se confirman igualmente de forma atómica en dicha transacción. La falta parcial de cupos por indisponibilidad de agenda no interrumpe la transacción y permite guardar los turnos disponibles reportando las fechas pendientes.
+
+**Independencia de turnos de consulta:** Las atenciones médicas son estrictamente independientes de los turnos de consulta. No existe el campo `TurnoId` en `AtencionMedica` ni en sus DTOs, no se exige un turno para registrar una atención ni se finalizan turnos automáticamente al guardar una consulta médica. La propiedad `AtencionMedicaId` en los turnos de seguimiento crónico opera exclusivamente como referencia histórica de la atención que los originó.
+
+**Limitación técnica de idempotencia:** El sistema no dispone de una clave o token de idempotencia provisto en la solicitud HTTP. En consecuencia, dos peticiones idénticas enviadas exitosamente de forma consecutiva generarán dos atenciones médicas distintas con sus respectivas series de turnos.
 
 **Evaluación de aptitud clínica y vacunación (RN-03, RN-04):** La evaluación de aptitud se realiza dentro de la misma atención médica, inmediatamente antes de aplicar la vacuna, mediante una checklist clínica (sin fiebre, buen estado general, sin enfermedad infecciosa aguda y autorización profesional). La condición de APTO tiene validez únicamente para esa atención y ese mismo día, sin requerir la creación de una entidad independiente de «Alta Médica» ni el cómputo de fechas de vencimiento. Solo se puede registrar una vacuna cuando la mascota fue declarada APTO en la misma atención médica a la que se vincula la inoculación. Si el resultado es NO APTO, el sistema impide registrar la vacuna, pero **permite guardar normalmente la atención médica y asentar el motivo de la no aptitud clínica**. Una evaluación favorable de una consulta anterior no habilita automáticamente la aplicación de vacunas en consultas posteriores.
 
@@ -93,11 +104,14 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
       - Si la atención incluye solicitud de seguimiento crónico, invoca internamente el servicio `ITurnoService.GenerarTurnosSeguimientoCronicoAsync` del CU-06.
       - El servicio busca y genera turnos con estado `Pendiente` a lo largo de seis meses respetando la frecuencia, la jornada preferida y la disponibilidad del veterinario (bloques de 30 minutos sin solapamiento, RN-08, RN-10).
       - Si alguna fecha no pudo ser asignada por falta de disponibilidad horaria dentro de la ventana permitida, el servicio genera los turnos que sí obtuvieron cupo y reporta el listado de fechas no asignadas para coordinación manual (`fechasPendientesManual[]`). La falta de disponibilidad no impide guardar la atención médica.
-4. La **Capa de Persistencia** ejecuta una transacción ACID indivisible en base de datos (`DbContext.SaveChangesAsync`):
-   - Crea el registro inmutable en `Atenciones` (**RN-01**), almacenando el profesional autenticado, peso, estado de alerta de desnutrición, porcentaje de variación, peso de referencia utilizado, motivo, anamnesis, examen físico, diagnóstico y tratamiento.
-   - Actualiza la fecha de última visita en la entidad `Mascotas` como parte de la misma transacción (INF-07).
+4. La **Capa de Persistencia** ejecuta una transacción explícita de Entity Framework Core (`BeginTransactionAsync` / `CommitTransactionAsync` / `RollbackTransactionAsync`) sobre `VeterinariaDbContext` garantizando la atomicidad absoluta de todas las operaciones de escritura:
+   - Inicia la transacción en el repositorio (`IAtencionMedicaRepository.BeginTransactionAsync`).
+   - Persiste el registro inmutable en `Atenciones` (**RN-01**), almacenando el profesional autenticado, peso, estado de alerta de desnutrición, porcentaje de variación, peso de referencia utilizado, motivo, anamnesis, examen físico, diagnóstico y tratamiento.
    - Guarda en cascada las prescripciones, solicitudes de estudio, el procedimiento quirúrgico (si fue ingresado) y el resultado de la evaluación de aptitud y vacunas aplicadas (**RN-02**).
-   - Persiste en la tabla `Turnos` la serie de turnos de seguimiento generados vinculados a la `AtencionMedicaId` (**RN-11**).
+   - Actualiza de forma indivisible la fecha de última visita en la entidad `Mascotas` aplicando la regla de no retroceso (**INF-07**).
+   - Si la atención incluye seguimiento crónico, persiste en la tabla `Turnos` la serie generada vinculada a `AtencionMedicaId` (**RN-11**) utilizando el mismo `DbContext` transaccional.
+   - Si todas las escrituras se completan exitosamente, confirma la transacción (`CommitTransactionAsync`).
+   - Si se produce cualquier excepción (falla de base de datos, error de concurrencia o contingencia técnica en la persistencia de turnos), ejecuta de inmediato la reversión total (`RollbackTransactionAsync`) y propaga la excepción, impidiendo la existencia de atenciones médicas huérfanas o escrituras parciales.
 5. El Sistema devuelve un código **201 Created** con el detalle completo de la atención registrada (`AtencionMedicaResponseDTO`), incluyendo:
    - Identificador generado de la atención e identificación del profesional autenticado.
    - Datos clínicos, peso registrado y resultado de la alerta de desnutrición (`alertaDesnutricion`, `porcentajeDisminucionPeso`, `pesoReferenciaUtilizado`, `mensajeAlertaDesnutricion`).
@@ -162,11 +176,13 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
   5. La respuesta informa los turnos asignados y la lista de fechas que requieren coordinación manual (`fechasPendientesManual[]`). Fin del flujo.
 
 * **4a. Error al guardar / Falla en la persistencia (HTTP 500 Internal Server Error):**
-  1. Si en el Paso 4 ocurre un error durante la transacción de persistencia en base de datos (rollback automático de la transacción) o fallo de comunicación con el servidor.
-  2. El middleware de excepciones intercepta el fallo y el Sistema devuelve un código **500 Internal Server Error**.
-  3. El sistema informa al Veterinario mediante un mensaje de error que la atención médica no pudo guardarse, evitando cualquier mensaje falso o confirmación indebida de registro.
-  4. La transacción en base de datos se revierte íntegramente (rollback automático); la fecha de última visita de la mascota no se actualiza (permanece intacta con su valor previo o como «Sin visitas registradas»). El sistema conserva intactos en el formulario todos los datos clínicos y quirúrgicos previamente ingresados (motivo, anamnesis, examen físico, diagnóstico, tratamiento, observaciones, prescripciones, estudios, procedimiento quirúrgico y checklists).
-  5. El Veterinario permanece en el formulario y puede revisar la información cargada, corregir datos o reintentar el guardado sin perder los datos ingresados. No se emite confirmación falsa de registro, no se actualiza erróneamente la fecha de última visita y no queda registrada una atención o procedimiento quirúrgico parcial como resultado exitoso.
+  1. Si en el Paso 4 ocurre un error durante cualquiera de las escrituras de la transacción en base de datos (falla al insertar la atención, error al persistir prescripciones o cirugías, falla al actualizar última visita o error/timeout al persistir la serie de turnos de seguimiento crónico).
+  2. La Capa de Negocio ejecuta el rollback explícito de la transacción en `VeterinariaDbContext`, revirtiendo todas las operaciones previas de la petición sin dejar registros parciales.
+  3. El middleware de excepciones intercepta el fallo y el Sistema devuelve un código **500 Internal Server Error**.
+  4. El sistema informa al Veterinario mediante un mensaje de error que la atención médica no pudo guardarse, evitando cualquier mensaje falso o confirmación indebida de registro.
+  5. La base de datos permanece en su estado anterior; la fecha de última visita de la mascota no se actualiza (permanece intacta con su valor previo o como «Sin visitas registradas») y no queda guardada ninguna atención médica huérfana ni turnos desvinculados.
+  6. El sistema conserva intactos en el formulario todos los datos clínicos y quirúrgicos previamente ingresados (motivo, anamnesis, examen físico, diagnóstico, tratamiento, observaciones, prescripciones, estudios, procedimiento quirúrgico y checklists).
+  7. El Veterinario permanece en el formulario y puede revisar la información cargada, corregir datos o reintentar el guardado sin perder los datos ingresados. Un reintento posterior exitoso registrará la atención completa y sus turnos de forma consistente.
 
 * **A1 — Abandonar atención con cambios sin guardar:**
   1. Durante el Paso 1, el Veterinario ingresa o modifica información clínica o quirúrgica en el formulario de atención médica.
@@ -251,7 +267,7 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 - **Preservación histórica inmutable:** Los datos de la alerta (`AlertaDesnutricion`, `PorcentajeDisminucionPeso` y `PesoReferenciaUtilizado`) se almacenan de forma permanente e inmutable en la entidad `AtencionMedica`, asegurando su disponibilidad para consultas posteriores en la Historia Clínica y auditorías sanitarias.
 - **Naturaleza no bloqueante:** La alerta de desnutrición constituye una herramienta clínica de advertencia preventiva; en ningún caso obstaculiza, rechaza ni interrumpe el guardado exitoso de la atención médica (código HTTP 201 Created).
 
-### Nivel 3: Seguimiento Crónico y Tolerancia ante Indisponibilidad de Agenda (RN-11 / CU-06)
+### Nivel 3: Seguimiento Crónico, Tolerancia ante Indisponibilidad y Atomicidad Transaccional (RN-11 / CU-06)
 
 - **Activación integrada e indivisible:** La generación de la serie de turnos de seguimiento para patologías crónicas se activa automáticamente al confirmarse el guardado de la atención médica. El Veterinario consigna la indicación seleccionando la frecuencia (quincenal, mensual, bimestral o trimestral) y la jornada preferida del dueño (mañana, tarde o indistinta) dentro del mismo formulario de consulta.
 - **Delegación de mecanismo al CU-06:** CU-04 delega la búsqueda de disponibilidad y la reserva de los bloques de 30 minutos al servicio interno de turnos (`ITurnoService.GenerarTurnosSeguimientoCronicoAsync`), vinculando la `AtencionMedicaId` a cada turno generado. No requiere que el personal ejecute un endpoint independiente ni tareas manuales adicionales.
@@ -262,8 +278,20 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
   - La búsqueda hacia adelante tiene un límite máximo de siete (7) días corridos desde la fecha ideal proyectada.
 - **Política de tolerancia y reporte de turnos pendientes:**
   - Si en alguna o todas las fechas de la serie no se consigue cupo dentro del margen de 7 días respetando la jornada preferida, el sistema registra todos los turnos que sí hayan obtenido disponibilidad.
-  - La falta total o parcial de disponibilidad horaria **no impide ni bloquea el guardado exitoso de la atención médica**.
+  - La falta total o parcial de disponibilidad horaria **no constituye un error técnico y no impide ni bloquea el guardado exitoso de la atención médica**.
   - La respuesta HTTP 201 Created informa el listado de turnos programados (`turnosSeguimiento[]`) y detalla expresamente las fechas que no pudieron cubrirse (`fechasPendientesManual[]`), permitiendo al personal administrativo coordinar manualmente esas citas específicas sin perder los datos de la consulta ni los turnos asignados del plan.
+
+### Garantía de Atomicidad Transaccional de EF Core (CU-04 / RN-11)
+
+- **Transacción explícita única:** Todas las operaciones de escritura que conforman el caso de uso se ejecutan bajo una misma transacción indivisible de Entity Framework Core (`VeterinariaDbContext`), gestionada mediante `BeginTransactionAsync`, `CommitTransactionAsync` y `RollbackTransactionAsync`.
+- **Alcance de las escrituras incluidas:**
+  1. Inserción de la entidad `AtencionMedica` con su diagnóstico, observaciones y metadatos clínicos.
+  2. Inserción en cascada de sus entidades hijas: procedimientos quirúrgicos (`ProcedimientoQuirurgico`), prescripciones (`Prescripcion`) y estudios complementarios (`EstudioComplementario`).
+  3. Actualización de `FechaUltimaVisita` en la entidad `Mascota` (respetando la regla de no retroceso).
+  4. Generación y persistencia de la serie de turnos de seguimiento crónico (`Turno`) en estado inicial `Pendiente`, asignados al profesional y paciente con su respectivo `AtencionMedicaId`.
+- **Comportamiento ante fallas:** Si ocurre cualquier excepción en cualquiera de los pasos (error de persistencia en base de datos, fallo de concurrencia o contingencia técnica en la persistencia de los turnos), la transacción completa se revierte de forma inmediata (`Rollback`). No quedan atenciones médicas persistidas sin su seguimiento correspondiente ni turnos huérfanos.
+- **Independencia de los turnos de consulta:** Las atenciones médicas y los turnos de consulta son procesos desacoplados e independientes. No existe campo `TurnoId` en `AtencionMedica`, no se exige un turno previo para atender ni se finalizan turnos automáticamente al registrar una consulta. `AtencionMedicaId` se conserva en los turnos de seguimiento crónico únicamente como referencia histórica de origen.
+- **Limitación técnica de idempotencia:** El sistema no implementa un token o encabezado de idempotencia por solicitud HTTP. En consecuencia, si un cliente envía dos peticiones HTTP idénticas consecutivas que se procesan exitosamente, se generarán dos atenciones médicas distintas con sus correspondientes series de turnos.
 
 ### Evaluación de Aptitud para Vacunación y Descarte de Entidad Externa de Alta Médica (RN-03, RN-04)
 
@@ -331,6 +359,9 @@ Permite al veterinario asentar una nueva atención médica en la historia clíni
 | 3b. Vacuna con evaluación APTO de consulta pasada | `409 Conflict` | `CreateAtencionAsync_WhenVaccinationAptoOnlyInPreviousVisit_ThrowsPacienteNoAptoVacunacionException` | `CreateAtencion_WhenAptoInPastVisit_Returns409Conflict` |
 | 3c. Mascota inactiva | `409 Conflict` | `CreateAtencionAsync_WhenMascotaIsInactive_ThrowsMascotaInactivaException` | `CreateAtencion_WhenMascotaIsInactive_Returns409Conflict` |
 | 4a. Error de persistencia / Reintento | `500 Internal Server Error` | `CreateAtencionAsync_WhenDbFails_ThrowsExceptionAndRollbacks` | `CreateAtencion_WhenDbFails_Returns500AndPreservesFormData` |
+| Falla en seguimiento revierte transacción | `500 Internal Server Error` | `CreateAsync_SeguimientoCronico_FallaTecnicaEnPersistenciaDeTurnos_RevierteTransaccionYPropagaExcepcion` | `Create_FalloEnGeneracionSeguimiento_RevierteTransaccionYNoDejaEscriturasParcialesEnSQLite` |
+| Transacción exitosa sin seguimiento | `201 Created` | `CreateAtencionAsync_WithCompleteData_SavesAtencionAndRelatedEntities` | `Create_AtencionSinSeguimientoCronico_PersisteCorrectamenteEnTransaccion` |
+| Reintento tras fallo sin escrituras parciales | `201 Created` | `CreateAsync_SeguimientoCronico_FallaEnTurnos_RevierteTransaccionYNoPersisteParcialmente` | `Create_ReintentoTrasFalloEnSeguimiento_PermiteRegistroCompletoSinDuplicadosParciales` |
 | A1. Salir con cambios pendientes | N/A (Modal UI) | — (Detección de estado 'dirty' / cambios pendientes clínicos y quirúrgicos) | `FormularioAtencion_AlIntentarSalirConCambios_MuestraAdvertenciaYPermiteDecidir` |
 | A2. Salir sin cambios pendientes | N/A (Navegación UI) | — (Verificación de formulario limpio / sin modificaciones) | `FormularioAtencion_AlSalirSinCambios_NavegaSinAdvertencia` |
 

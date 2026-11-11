@@ -718,4 +718,559 @@ public class TurnosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(new TimeSpan(9, 0, 0), guardadas[0].HoraInicio);
         Assert.Equal(new TimeSpan(12, 0, 0), guardadas[0].HoraFin);
     }
+
+    [Fact]
+    public async Task Confirmar_ConRolRecepcionista_TurnoPendienteValido_Retorna200OKYEstadoConfirmado()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        // Sembrar un turno en estado Pendiente directamente en BD
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaLunes = ((1 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((1 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaLunes = ahora.AddDays(diasHastaLunes).AddHours(9); // 09:00 AM
+
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var turno = new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaLunes,
+                MotivoConsulta = "Control de seguimiento crónico",
+                Estado = "Pendiente",
+                EsAutomatico = true,
+                TipoOrigen = "SeguimientoCronico"
+            };
+            db.Turnos.Add(turno);
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Confirmar como Recepcionista
+        var response = await _client.PostAsync($"/api/turnos/{turnoId}/confirmar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var confirmado = await response.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(confirmado);
+        Assert.Equal("Confirmado", confirmado.Estado);
+    }
+
+    [Fact]
+    public async Task Confirmar_ConRolVeterinario_TurnoPendienteValido_Retorna200OKYEstadoConfirmado()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaLunes = ((1 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((1 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaLunes = ahora.AddDays(diasHastaLunes).AddHours(10); // 10:00 AM
+
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var turno = new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaLunes,
+                MotivoConsulta = "Control de seguimiento crónico",
+                Estado = "Pendiente",
+                EsAutomatico = true,
+                TipoOrigen = "SeguimientoCronico"
+            };
+            db.Turnos.Add(turno);
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Confirmar como Veterinario
+        var response = await _client.PostAsync($"/api/turnos/{turnoId}/confirmar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var confirmado = await response.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(confirmado);
+        Assert.Equal("Confirmado", confirmado.Estado);
+    }
+
+    [Fact]
+    public async Task Confirmar_ConRolAdministrador_Retorna403Forbidden()
+    {
+        // Arrange
+        await LoginAndSetHeaderAsync("admin", "Admin1234!");
+        var turnoId = Guid.NewGuid();
+
+        // Act
+        var response = await _client.PostAsync($"/api/turnos/{turnoId}/confirmar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Confirmar_SinAutenticacion_Retorna401Unauthorized()
+    {
+        // Arrange
+        _client.DefaultRequestHeaders.Authorization = null;
+        var turnoId = Guid.NewGuid();
+
+        // Act
+        var response = await _client.PostAsync($"/api/turnos/{turnoId}/confirmar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Confirmar_CuandoHorarioYaOcupadoPorTurnoConfirmado_Retorna409Conflict()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Wednesday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaMiercoles = ((3 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((3 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaMiercoles = ahora.AddDays(diasHastaMiercoles).AddHours(9); // 09:00 AM
+
+        var turnoPendienteId = Guid.NewGuid();
+        var turnoConfirmadoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoPendienteId,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaMiercoles,
+                MotivoConsulta = "Seguimiento pendiente",
+                Estado = "Pendiente"
+            });
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoConfirmadoId,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaMiercoles,
+                MotivoConsulta = "Turno manual confirmado",
+                Estado = "Confirmado"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Intentar confirmar el turno pendiente en horario ocupado
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+        var response = await _client.PostAsync($"/api/turnos/{turnoPendienteId}/confirmar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task VariosTurnosPendientesEnMismoHorario_NoBloqueanHorario_HastaQueUnoSeConfirma()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Thursday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaJueves = ((4 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((4 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaJueves = ahora.AddDays(diasHastaJueves).AddHours(11); // 11:00 AM
+
+        var pendiente1Id = Guid.NewGuid();
+        var pendiente2Id = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Turnos.Add(new Turno
+            {
+                Id = pendiente1Id,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaJueves,
+                MotivoConsulta = "Seguimiento 1",
+                Estado = "Pendiente"
+            });
+            db.Turnos.Add(new Turno
+            {
+                Id = pendiente2Id,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = fechaJueves,
+                MotivoConsulta = "Seguimiento 2",
+                Estado = "Pendiente"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act 1: Crear un turno manual en ese mismo horario debe ser exitoso porque los pendientes NO bloquean
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+        var createManualDto = new TurnoCreateDTO
+        {
+            MascotaId = mascota.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaJueves,
+            MotivoConsulta = "Turno manual de urgencia"
+        };
+        var resManual = await _client.PostAsJsonAsync("/api/turnos", createManualDto);
+        Assert.Equal(HttpStatusCode.Created, resManual.StatusCode);
+
+        // Act 2: Al intentar confirmar cualquiera de los pendientes ahora que existe uno Confirmado, se rechaza
+        var resConfirmar1 = await _client.PostAsync($"/api/turnos/{pendiente1Id}/confirmar", null);
+        Assert.Equal(HttpStatusCode.Conflict, resConfirmar1.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancelar_ConMotivoInasistencia_Retorna200OKYRegistraInasistencia()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Friday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaViernes = ((5 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((5 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaViernes = ahora.AddDays(diasHastaViernes).AddHours(9);
+
+        var createRes = await _client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+        {
+            MascotaId = mascota.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaViernes,
+            MotivoConsulta = "Consulta para control"
+        });
+        var creado = await createRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(creado);
+
+        // Act: Cancelar con motivo Inasistencia
+        var cancelRes = await _client.PostAsJsonAsync($"/api/turnos/{creado.Id}/cancelar", new TurnoCancelarDTO
+        {
+            MotivoCancelacion = "Inasistencia"
+        });
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, cancelRes.StatusCode);
+        var cancelado = await cancelRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(cancelado);
+        Assert.Equal("Cancelado", cancelado.Estado);
+        Assert.Equal("Inasistencia", cancelado.MotivoCancelacion);
+        Assert.NotNull(cancelado.FechaCancelacion);
+    }
+
+    [Fact]
+    public async Task Finalizar_ConRolRecepcionista_TurnoConfirmado_Retorna200OKYEstadoFinalizado()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Wednesday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaMiercoles = ((3 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((3 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaMiercoles = ahora.AddDays(diasHastaMiercoles).AddHours(10);
+
+        var createRes = await _client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+        {
+            MascotaId = mascota.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaMiercoles,
+            MotivoConsulta = "Control general"
+        });
+        var creado = await createRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(creado);
+        Assert.Equal("Confirmado", creado.Estado);
+
+        // Act: Finalizar como Recepcionista
+        var finalRes = await _client.PostAsync($"/api/turnos/{creado.Id}/finalizar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, finalRes.StatusCode);
+        var finalizado = await finalRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(finalizado);
+        Assert.Equal("Finalizado", finalizado.Estado);
+    }
+
+    [Fact]
+    public async Task Finalizar_ConRolVeterinario_TurnoConfirmado_Retorna200OKYEstadoFinalizado()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Wednesday,
+                    Jornada = "Manana",
+                    HoraInicio = new TimeSpan(8, 0, 0),
+                    HoraFin = new TimeSpan(12, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaMiercoles = ((3 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((3 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaMiercoles = ahora.AddDays(diasHastaMiercoles).AddHours(11);
+
+        var createRes = await _client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+        {
+            MascotaId = mascota.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaMiercoles,
+            MotivoConsulta = "Consulta clínica"
+        });
+        var creado = await createRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(creado);
+
+        // Act: Finalizar como Veterinario
+        var finalRes = await _client.PostAsync($"/api/turnos/{creado.Id}/finalizar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, finalRes.StatusCode);
+        var finalizado = await finalRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(finalizado);
+        Assert.Equal("Finalizado", finalizado.Estado);
+    }
+
+    [Fact]
+    public async Task Finalizar_ConRolAdministrador_Retorna403Forbidden()
+    {
+        // Arrange
+        await LoginAndSetHeaderAsync("admin", "Admin1234!");
+
+        // Act
+        var response = await _client.PostAsync($"/api/turnos/{Guid.NewGuid()}/finalizar", null);
+
+        // Assert: Administrador no tiene permiso para finalizar turnos clínicos
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Finalizar_SinAutenticacion_Retorna401Unauthorized()
+    {
+        // Arrange
+        _client.DefaultRequestHeaders.Authorization = null;
+
+        // Act
+        var response = await _client.PostAsync($"/api/turnos/{Guid.NewGuid()}/finalizar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Finalizar_TurnoEnEstadoPendiente_Retorna409Conflict()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascota.Id,
+                VeterinarioId = vetId,
+                FechaHora = DateTime.UtcNow.AddDays(5),
+                MotivoConsulta = "Pendiente crónico",
+                Estado = "Pendiente"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Act: Intentar finalizar directamente un turno que está Pendiente (no Confirmado)
+        var response = await _client.PostAsync($"/api/turnos/{turnoId}/finalizar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Finalizar_TurnoYaFinalizado_Retorna409Conflict()
+    {
+        // Arrange
+        var vetId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+        var dispDto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO
+                {
+                    DiaSemana = DayOfWeek.Friday,
+                    Jornada = "Tarde",
+                    HoraInicio = new TimeSpan(14, 0, 0),
+                    HoraFin = new TimeSpan(18, 0, 0)
+                }
+            }
+        };
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetId}", dispDto);
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var mascota = mascotas!.First(m => m.Activa);
+
+        var ahora = DateTime.UtcNow.Date;
+        var diasHastaViernes = ((5 - (int)ahora.DayOfWeek + 7) % 7) == 0 ? 7 : ((5 - (int)ahora.DayOfWeek + 7) % 7);
+        var fechaViernes = ahora.AddDays(diasHastaViernes).AddHours(15);
+
+        var createRes = await _client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+        {
+            MascotaId = mascota.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaViernes,
+            MotivoConsulta = "Consulta"
+        });
+        var creado = await createRes.Content.ReadFromJsonAsync<TurnoResponseDTO>();
+        Assert.NotNull(creado);
+
+        // Primer finalizado: Exitoso
+        var res1 = await _client.PostAsync($"/api/turnos/{creado.Id}/finalizar", null);
+        Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+
+        // Act: Segundo intento de finalización sobre un turno ya finalizado
+        var res2 = await _client.PostAsync($"/api/turnos/{creado.Id}/finalizar", null);
+
+        // Assert: Debe ser rechazado con conflicto
+        Assert.Equal(HttpStatusCode.Conflict, res2.StatusCode);
+    }
+
+    [Fact]
+    public async Task Finalizar_TurnoInexistente_Retorna404NotFound()
+    {
+        // Arrange
+        await LoginAndSetHeaderAsync("recep.ana", "Recep1234!");
+
+        // Act
+        var response = await _client.PostAsync($"/api/turnos/{Guid.NewGuid()}/finalizar", null);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

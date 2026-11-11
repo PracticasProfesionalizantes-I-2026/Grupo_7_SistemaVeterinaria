@@ -11,7 +11,7 @@ public class Turno
 
     public DateTime FechaHora { get; set; }
     public string MotivoConsulta { get; set; } = string.Empty;
-    public string Estado { get; set; } = "Confirmado"; // Pendiente, Confirmado, EnAtencion, Finalizado, Cancelado
+    public string Estado { get; set; } = "Confirmado"; // Pendiente, Confirmado, Finalizado, Cancelado
     public bool EsAutomatico { get; set; } = false;
     public string TipoOrigen { get; set; } = "Manual"; // Manual, SeguimientoCronico
 

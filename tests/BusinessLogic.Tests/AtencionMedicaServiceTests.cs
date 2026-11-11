@@ -3,6 +3,7 @@ using BusinessLogic.Services;
 using DataAccess.Entities;
 using DataAccess.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
 using Shared.DTOs.AtencionMedica;
 using Shared.DTOs.Turno;
@@ -1085,9 +1086,9 @@ public class AtencionMedicaServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_SeguimientoCronico_FallaTecnicaEnPersistenciaDeTurnos_Retorna201ConAdvertenciaYFechasPendientes()
+    public async Task CreateAsync_SeguimientoCronico_FallaTecnicaEnPersistenciaDeTurnos_RevierteTransaccionYPropagaExcepcion()
     {
-        // Arrange: La atención clínica se guarda con éxito, pero la persistencia de turnos lanza un DbUpdateException
+        // Arrange: Si la generación o persistencia de turnos lanza un DbUpdateException, la transacción debe revertirse
         var mascotaId = Guid.NewGuid();
         var vetId = Guid.NewGuid();
         var mascota = new Mascota { Id = mascotaId, Nombre = "Toby", Activa = true, Peso = 14m };
@@ -1102,9 +1103,6 @@ public class AtencionMedicaServiceTests
         // Simula falla técnica de base de datos durante la persistencia de los turnos en el generador
         _turnoServiceMock.Setup(t => t.GenerarTurnosSeguimientoCronicoAsync(It.IsAny<GenerarTurnosCronicosDTO>()))
                          .ThrowsAsync(new DbUpdateException("Database disk image is locked / IO Failure", new Exception()));
-
-        // Al consultar la base de datos tras la falla, no hay turnos persistidos
-        _atencionRepoMock.Setup(r => r.GetByIdAsync(nuevaAtencionId)).ReturnsAsync((AtencionMedica?)null);
 
         var dto = new AtencionMedicaCreateDTO
         {
@@ -1122,24 +1120,16 @@ public class AtencionMedicaServiceTests
             }
         };
 
-        // Act
-        var result = await _service.CreateAsync(dto, vetId, "vet.carlos");
-
-        // Assert: No arroja 500, devuelve 201 con la atención guardada y advertencia explícita
-        Assert.NotNull(result);
-        Assert.Equal(nuevaAtencionId, result.Id);
-        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Once); // Atención clínica intacta
-        Assert.NotNull(result.MensajeSeguimientoCronico);
-        Assert.Contains("Advertencia", result.MensajeSeguimientoCronico, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("falla técnica", result.MensajeSeguimientoCronico, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(6, result.FechasPendientesManual.Count); // Mensual a 6 meses = 6 fechas pendientes calculadas confiablemente
-        Assert.Empty(result.TurnosSeguimiento);
+        // Act & Assert: Debe propagar la excepción y revertir la transacción sin dejar guardado parcial
+        await Assert.ThrowsAsync<DbUpdateException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.RollbackTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Once);
+        _atencionRepoMock.Verify(r => r.CommitTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task CreateAsync_SeguimientoCronico_FallaTecnicaConTurnosPreviamentePersistidos_ConsultaEstadoRealYNoDuplica()
+    public async Task CreateAsync_SeguimientoCronico_FallaEnTurnos_RevierteTransaccionYNoPersisteParcialmente()
     {
-        // Arrange: Falla técnica pero en la base de datos ya se habían registrado 2 turnos de esa atención
+        // Arrange: Falla durante la generación de turnos debe revertir la transacción de atención médica
         var mascotaId = Guid.NewGuid();
         var vetId = Guid.NewGuid();
         var mascota = new Mascota { Id = mascotaId, Nombre = "Toby", Activa = true, Peso = 14m };
@@ -1153,30 +1143,6 @@ public class AtencionMedicaServiceTests
 
         _turnoServiceMock.Setup(t => t.GenerarTurnosSeguimientoCronicoAsync(It.IsAny<GenerarTurnosCronicosDTO>()))
                          .ThrowsAsync(new DbUpdateException("Database transient error", new Exception()));
-
-        // En la base de datos se comprueba el estado real: se encuentra 1 turno persistido
-        var atencionCon1Turno = new AtencionMedica
-        {
-            Id = nuevaAtencionId,
-            MascotaId = mascotaId,
-            Mascota = mascota,
-            Fecha = DateTime.UtcNow,
-            TurnosSeguimiento = new List<Turno>
-            {
-                new Turno
-                {
-                    Id = Guid.NewGuid(),
-                    MascotaId = mascotaId,
-                    VeterinarioId = vetId,
-                    AtencionMedicaId = nuevaAtencionId,
-                    FechaHora = DateTime.UtcNow.AddMonths(1),
-                    Estado = "Pendiente",
-                    EsAutomatico = true,
-                    TipoOrigen = "SeguimientoCronico"
-                }
-            }
-        };
-        _atencionRepoMock.Setup(r => r.GetByIdAsync(nuevaAtencionId)).ReturnsAsync(atencionCon1Turno);
 
         var dto = new AtencionMedicaCreateDTO
         {
@@ -1194,15 +1160,10 @@ public class AtencionMedicaServiceTests
             }
         };
 
-        // Act
-        var result = await _service.CreateAsync(dto, vetId, "vet.carlos");
-
-        // Assert: Se reporta exactamente el turno real y las fechas restantes sin duplicar
-        Assert.NotNull(result);
-        Assert.Single(result.TurnosSeguimiento);
-        Assert.Equal(5, result.FechasPendientesManual.Count); // 6 ideales - 1 ya asignado = 5 pendientes
-        Assert.NotNull(result.MensajeSeguimientoCronico);
-        Assert.Contains("Advertencia", result.MensajeSeguimientoCronico, StringComparison.OrdinalIgnoreCase);
+        // Act & Assert: Falla técnica causa Rollback y no Commit
+        await Assert.ThrowsAsync<DbUpdateException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.RollbackTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Once);
+        _atencionRepoMock.Verify(r => r.CommitTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -1330,9 +1291,9 @@ public class AtencionMedicaServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_SeguimientoCronico_TimeoutException_Retorna201ConAdvertenciaYFechasPendientes()
+    public async Task CreateAsync_SeguimientoCronico_TimeoutException_RevierteTransaccionYPropagaExcepcion()
     {
-        // Arrange: Falla operativa recuperable por timeout en subsistema de agenda
+        // Arrange: Falla operativa por timeout en subsistema de agenda debe revertir la transacción de atención médica
         var mascotaId = Guid.NewGuid();
         var vetId = Guid.NewGuid();
         var mascota = new Mascota { Id = mascotaId, Nombre = "Toby", Activa = true, Peso = 14m };
@@ -1346,8 +1307,6 @@ public class AtencionMedicaServiceTests
 
         _turnoServiceMock.Setup(t => t.GenerarTurnosSeguimientoCronicoAsync(It.IsAny<GenerarTurnosCronicosDTO>()))
                          .ThrowsAsync(new TimeoutException("Timeout al comunicarse con el subsistema de agenda"));
-
-        _atencionRepoMock.Setup(r => r.GetByIdAsync(nuevaAtencionId)).ReturnsAsync((AtencionMedica?)null);
 
         var dto = new AtencionMedicaCreateDTO
         {
@@ -1365,17 +1324,10 @@ public class AtencionMedicaServiceTests
             }
         };
 
-        // Act
-        var result = await _service.CreateAsync(dto, vetId, "vet.carlos");
-
-        // Assert: Atención médica guardada con éxito (201) y advertencia de falla técnica
-        Assert.NotNull(result);
-        Assert.Equal(nuevaAtencionId, result.Id);
-        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Once);
-        Assert.NotNull(result.MensajeSeguimientoCronico);
-        Assert.Contains("Advertencia", result.MensajeSeguimientoCronico, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("falla técnica", result.MensajeSeguimientoCronico, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(3, result.FechasPendientesManual.Count);
+        // Act & Assert: Debe propagar TimeoutException y ejecutar Rollback
+        await Assert.ThrowsAsync<TimeoutException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.RollbackTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Once);
+        _atencionRepoMock.Verify(r => r.CommitTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
