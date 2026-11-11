@@ -830,5 +830,75 @@ Durante la etapa de preparación final para la entrega técnica se realizaron la
    * Guía completa de usuarios y credenciales de desarrollo.
    * Catálogo de reglas de negocio actualizadas y guía paso a paso para importar y ejecutar Bruno respetando su orden de preparación.
 
+---
+
+## 4. Resolución de Observaciones Docentes (Entrega Final)
+
+### 4.1. Observación Docente: CU-03 / CU-07 — La Historia Clínica no existe como entidad persistida ni como excepción tipada
+
+- **Observación formulada:** La Historia Clínica no existe como entidad persistida en base de datos ni existe la excepción tipada `HistoriaClinicaNotFoundException` mencionada en la documentación de casos de uso.
+- **Decisión técnica y funcional adoptada:**
+  - Se ratifica la decisión arquitectónica de mantener la **Historia Clínica como una proyección lógica derivada** de la mascota (`Mascota`) y de sus atenciones médicas (`AtencionMedica`), identificable unívocamente a través de la identidad de la propia mascota (`MascotaId`).
+  - No se crea una entidad ni tabla física `HistoriaClinica` en base de datos ni migraciones de EF Core.
+  - Al registrar una nueva mascota (`CU-07`), esta queda en estado `Activa` y su historia clínica pasa a estar inmediatamente disponible para consulta sin requerir la creación de un registro físico previo.
+  - La historia clínica puede consultarse aunque la mascota aún no posea atenciones médicas registradas (`CU-03` Flujo 3b), retornando código HTTP `200 OK` con `UltimaVisitaVisualizada = "Sin visitas registradas"`, colecciones clínicas vacías y mensaje informativo `"Sin atenciones médicas registradas a la fecha."`.
+  - Toda nueva atención médica persistida se refleja de manera automática e inmediata en la historia clínica proyectada.
+  - Ante una consulta con identificador inexistente, la Capa de Negocio lanza `MascotaNotFoundException` (excepción tipada real del dominio), y el controlador la captura retornando HTTP `404 Not Found` con `{ "message": "No se encontró la historia clínica para la mascota solicitada." }`. Se elimina toda mención a la hipotética `HistoriaClinicaNotFoundException`.
+- **Documentos actualizados:**
+  1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-07-gestionar-mascotas.md`: Se corrigieron el Paso 5 del Flujo Principal, la Postcondición de Alta, la matriz de códigos HTTP (`201 Created`) y la matriz de trazabilidad a tests para documentar que la historia clínica es una proyección lógica derivada y no un registro físico generado al persistir la mascota.
+  2. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-03-consultar-historia-clinica.md`: Se eliminó la precondición de "registro físico previo de historia clínica", se alineó el flujo principal (`GetHistoriaClinicaByMascotaIdAsync`), se corrigió el flujo 3a eliminando la mención a `HistoriaClinicaNotFoundException` e indicando el uso exclusivo de `MascotaNotFoundException`, se clarificó el flujo 3b (mascota sin visitas con `200 OK`), y se actualizaron las matrices de códigos HTTP y de trazabilidad a tests.
+  3. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Se ajustó el requerimiento funcional de registro de mascotas para especificar que la historia clínica es una proyección lógica derivada accesible mediante `MascotaId` y no una entidad generada físicamente.
+- **Estado:** Completada (Resolución aprobada por la cátedra mediante actualización documental y alineación formal con el comportamiento real del código).
+
+---
+
+### 4.2. Observación Docente: RN-09 / CU-06 — Ciclo de vida de turnos e inalcanzabilidad de Finalizado
+
+- **Observación formulada:** El estado `Finalizado` de los turnos resultaba inalcanzable en el diseño preliminar y la cátedra propuso incorporar el estado intermedio `EnAtencion`.
+- **Decisión técnica y funcional adoptada:**
+  - Se mantiene una máquina de estados finita de cuatro (4) estados exclusivos: **`Pendiente`**, **`Confirmado`**, **`Cancelado`** y **`Finalizado`**.
+  - **Transiciones formalizadas y permitidas:**
+    1. `Pendiente → Confirmado`: Confirmación manual por Recepcionista o Veterinario (`POST /api/turnos/{id}/confirmar`), validando agenda configurada (**RN-10**), no solapamiento (**RN-08**) y paciente activo (**RN-07**).
+    2. `Pendiente → Cancelado`: Cancelación directa con motivo obligatorio (`POST /api/turnos/{id}/cancelar`).
+    3. `Confirmado → Cancelado`: Cancelación de turnos confirmados con motivo obligatorio, liberando de inmediato el bloque de 30 minutos en la agenda (**RN-08**).
+    4. `Confirmado → Finalizado`: Finalización manual explícita (`POST /api/turnos/{id}/finalizar`), autorizada para `Recepcionista` y `Veterinario`.
+  - **Inmutabilidad estricta de Finalizado (RN-09):** Una vez que un turno pasa a `Finalizado`, no puede ser cancelado, reprogramado, modificado ni vuelto a transicionar.
+  - **Independencia absoluta de procesos:** Los turnos y las atenciones médicas son procesos funcional y técnicamente desacoplados. El registro de una atención médica no finaliza automáticamente un turno ni se alteran turnos por el simple transcurso del tiempo; la finalización es una acción manual autónoma.
+  - **Justificación de diseño:** Se resolvió la inalcanzabilidad del estado `Finalizado` mediante esta máquina de estados alternativa de 4 estados con finalización manual explícita, sin implementar `EnAtencion`. Se evitó incorporar un estado intermedio efímero que complejiza la concurrencia y no responde a la operativa real de la clínica.
+  - **Verificación de cancelación:** Se comprobó y verificó en código que la transición `Confirmado → Cancelado` está plenamente habilitada en `TurnoService.CancelarAsync`, rechazando únicamente turnos en estado `Finalizado` o ya `Cancelado`.
+- **Documentos actualizados:**
+  1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-06-gestionar-turnos.md`: Se formalizaron los Flujos 3.5 (Confirmar) y 3.6 (Finalizar), los flujos alternativos 3i, 3j, 3k, las sub-variaciones 5 y 6, las postcondiciones, la matriz de transiciones del ciclo de vida y la matriz de trazabilidad a tests. Se removieron menciones obsoletas a `EnAtencion`.
+  2. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-05-consultar-agenda-de-turnos.md`: Se eliminó la mención de `EnAtencion` del catálogo de estados filtrables.
+  3. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Se actualizaron los requerimientos funcionales de turnos y la especificación formal de la regla de negocio `RN-09`.
+- **Pruebas asociadas:**
+  - Unitarias (`TurnoServiceTests`): `FinalizarAsync_TurnoConfirmado_CambiaEstadoAFinalizadoYRetornaTurnoResponseDTO`, `FinalizarAsync_TurnoNoEstaEnEstadoConfirmado_LanzaTurnoNoConfirmadoException`, `ConfirmarAsync_TurnoExistenteEnEstadoPendiente_ConfirmaTurnoYRetornaTurnoResponseDTO`.
+  - Integración HTTP (`TurnosEndpointsTests`): `Finalizar_ConRolRecepcionista_TurnoConfirmado_Retorna200OKYEstadoFinalizado`, `Finalizar_ConRolVeterinario_TurnoConfirmado_Retorna200OKYEstadoFinalizado`, `Finalizar_TurnoEnEstadoPendiente_Retorna409Conflict`, `Confirmar_ConRolRecepcionista_TurnoPendienteValido_Retorna200OKYEstadoConfirmado`.
+- **Estado:** Completada.
+
+---
+
+### 4.3. Observación Docente: CU-04 / RN-11 — Atomicidad transaccional de atenciones médicas y turnos de seguimiento
+
+- **Observación formulada:** Riesgo de escrituras parciales o inconsistencias al persistir una atención médica antes de concluir la generación de los turnos de seguimiento crónico; ante fallos en estos últimos, la atención quedaba registrada y un reintento posterior podía provocar duplicaciones.
+- **Decisión técnica y funcional adoptada:**
+  - **Atomicidad transaccional total:** Se implementó una transacción explícita de Entity Framework Core (`IDbContextTransaction`) sobre el mismo `VeterinariaDbContext` coordinado entre `AtencionMedicaRepository` y `TurnoRepository` (`BeginTransactionAsync`, `CommitTransactionAsync`, `RollbackTransactionAsync`).
+  - **Escrituras incluidas en la transacción indivisible:**
+    1. Registro de la entidad `AtencionMedica` inmutable (**RN-01**).
+    2. Guardado en cascada de sus entidades hijas clínicas: prescripciones (`Prescripcion`), estudios (`EstudioComplementario`) y procedimientos quirúrgicos (`ProcedimientoQuirurgico`) (**RN-02**).
+    3. Actualización de la fecha de última visita en `Mascota` respetando la regla estricta de no retroceso (**INF-07**).
+    4. Generación y almacenamiento de la serie de turnos de seguimiento crónico (`Turno`) en estado inicial `Pendiente` a lo largo de seis meses (**RN-11**), asociados a la atención mediante `AtencionMedicaId`.
+  - **Comportamiento ante fallos (Rollback total):** Si ocurre cualquier excepción, timeout o error en base de datos durante cualquiera de las etapas (incluyendo fallos en la persistencia de turnos), se aborta la transacción y se ejecuta un rollback integral. No se confirman atenciones huérfanas ni escrituras parciales.
+  - **Independencia de turnos de consulta:** Las atenciones médicas no requieren turnos previos, no poseen `TurnoId` ni finalizan turnos automáticamente. La propiedad `AtencionMedicaId` en los turnos de seguimiento crónico funciona exclusivamente como referencia de origen.
+  - **Limitación técnica documentada:** El sistema no dispone de una clave de idempotencia por solicitud HTTP. En consecuencia, dos peticiones idénticas enviadas y completadas con éxito generarán dos atenciones independientes con sus respectivas series de turnos.
+- **Documentos actualizados:**
+  1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-04-registrar-atencion-medica.md`: Se actualizaron el Flujo Principal (Paso 4), el Flujo Alternativo 4a (rollback integral), la sección de seguimiento crónico en el anexo, la descripción de atomicidad y la matriz de trazabilidad a tests.
+  2. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Se ajustaron los requerimientos funcionales de atenciones médicas y turnos crónicos, y se reformuló formalmente la regla `RN-11`.
+- **Pruebas asociadas:**
+  - Unitarias (`AtencionMedicaServiceTests`): `CreateAsync_SeguimientoCronico_FallaTecnicaEnPersistenciaDeTurnos_RevierteTransaccionYPropagaExcepcion`, `CreateAsync_SeguimientoCronico_FallaEnTurnos_RevierteTransaccionYNoPersisteParcialmente`, `CreateAsync_SeguimientoCronico_TimeoutException_RevierteTransaccionYPropagaExcepcion`.
+  - Integración SQLite (`AtencionesMedicasEndpointsTests`): `Create_FalloEnGeneracionSeguimiento_RevierteTransaccionYNoDejaEscriturasParcialesEnSQLite`, `Create_AtencionSinSeguimientoCronico_PersisteCorrectamenteEnTransaccion`, `Create_ReintentoTrasFalloEnSeguimiento_PermiteRegistroCompletoSinDuplicadosParciales`.
+- **Estado:** Completada.
+
+
+
 
 

@@ -382,7 +382,6 @@ public class TurnoServiceTests
     [Theory]
     [InlineData("Pendiente")]
     [InlineData("Confirmado")]
-    [InlineData("EnAtencion")]
     [InlineData("Finalizado")]
     [InlineData("Cancelado")]
     [InlineData("confirmado")]
@@ -1022,5 +1021,566 @@ public class TurnoServiceTests
         Assert.Equal(0, result.TotalGenerados);
         Assert.Equal(2, result.TotalPendientes);
         Assert.Contains("no contaron con cupo disponible", result.Mensaje);
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_TurnoExistenteEnEstadoPendiente_ConfirmaTurnoYRetornaTurnoResponseDTO()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(9); // 09:00
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Pendiente",
+            Mascota = mascota,
+            Veterinario = vet
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, fechaFutura, 30)).ReturnsAsync(true);
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, fechaFutura, turnoId)).ReturnsAsync(false);
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>())).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act
+        var result = await _service.ConfirmarAsync(turnoId, usuarioId, "recep.ana");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Confirmado", turno.Estado);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.Is<Turno>(t => t.Id == turnoId && t.Estado == "Confirmado")), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_TurnoInexistente_LanzaTurnoNotFoundException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync((Turno?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNotFoundException>(() => _service.ConfirmarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+    }
+
+    [Theory]
+    [InlineData("Confirmado")]
+    [InlineData("Finalizado")]
+    [InlineData("Cancelado")]
+    public async Task ConfirmarAsync_TurnoNoEstaEnEstadoPendiente_LanzaTurnoNoPendienteException(string estadoNoPendiente)
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = Guid.NewGuid(),
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = DateTime.UtcNow.AddDays(1).Date.AddHours(10),
+            Estado = estadoNoPendiente
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNoPendienteException>(() => _service.ConfirmarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_MascotaInactiva_LanzaMascotaInactivaException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = false };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = DateTime.UtcNow.AddDays(1).Date.AddHours(10),
+            Estado = "Pendiente",
+            Mascota = mascota
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<MascotaInactivaException>(() => _service.ConfirmarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_HorarioYaOcupadoPorTurnoConfirmado_LanzaHorarioNoDisponibleException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(9);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Pendiente",
+            Mascota = mascota
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, fechaFutura, 30)).ReturnsAsync(true);
+        // Simula superposición con un turno confirmado existente
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, fechaFutura, turnoId)).ReturnsAsync(true);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<HorarioNoDisponibleException>(() => _service.ConfirmarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+        Assert.Equal("Pendiente", turno.Estado); // No cambió de estado
+    }
+
+    [Fact]
+    public async Task CancelarAsync_ConMotivoInasistencia_CancelaTurnoYRegistraMotivo()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = Guid.NewGuid(),
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = DateTime.UtcNow.AddDays(1).Date.AddHours(10),
+            Estado = "Confirmado"
+        };
+
+        var dto = new TurnoCancelarDTO { MotivoCancelacion = "Inasistencia" };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>())).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act
+        var result = await _service.CancelarAsync(turnoId, dto, usuarioId, "recep.ana");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Cancelado", turno.Estado);
+        Assert.Equal("Inasistencia", turno.MotivoCancelacion);
+        Assert.Equal(usuarioId, turno.UsuarioCancelacionId);
+        Assert.Equal("recep.ana", turno.UsuarioCancelacionUsername);
+        Assert.NotNull(turno.FechaCancelacion);
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_DosConfirmacionesSimultaneasTurnosSuperpuestos_UnaSolaTieneExitoYLaOtraLanzaHorarioNoDisponibleException()
+    {
+        // Arrange
+        var vetId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(9); // 09:00
+
+        var mascota1 = new Mascota { Id = Guid.NewGuid(), Nombre = "Milo", Activa = true };
+        var mascota2 = new Mascota { Id = Guid.NewGuid(), Nombre = "Luna", Activa = true };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+
+        var turno1Id = Guid.NewGuid();
+        var turno2Id = Guid.NewGuid();
+
+        // Turno 1 a las 09:00, Turno 2 a las 09:15 (superposición parcial en el bloque de 30m)
+        var turno1 = new Turno
+        {
+            Id = turno1Id,
+            MascotaId = mascota1.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Pendiente",
+            Mascota = mascota1,
+            Veterinario = vet
+        };
+
+        var turno2 = new Turno
+        {
+            Id = turno2Id,
+            MascotaId = mascota2.Id,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura.AddMinutes(15),
+            Estado = "Pendiente",
+            Mascota = mascota2,
+            Veterinario = vet
+        };
+
+        var turnosConfirmados = new List<Turno>();
+        var lockObj = new object();
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turno1Id)).ReturnsAsync(turno1);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turno2Id)).ReturnsAsync(turno2);
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(It.IsAny<Guid>())).ReturnsAsync((Guid id) => id == turno1Id ? turno1 : turno2);
+
+        _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, It.IsAny<DateTime>(), 30)).ReturnsAsync(true);
+
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, It.IsAny<DateTime>(), It.IsAny<Guid?>()))
+            .ReturnsAsync((Guid vId, DateTime fh, Guid? idExcluir) =>
+            {
+                lock (lockObj)
+                {
+                    var inicio = fh.AddMinutes(-30);
+                    var fin = fh.AddMinutes(30);
+                    return turnosConfirmados.Any(t => t.VeterinarioId == vId && t.Id != idExcluir && t.FechaHora > inicio && t.FechaHora < fin);
+                }
+            });
+
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>()))
+            .ReturnsAsync((Turno t) =>
+            {
+                lock (lockObj)
+                {
+                    if (t.Estado == "Confirmado" && !turnosConfirmados.Any(x => x.Id == t.Id))
+                    {
+                        turnosConfirmados.Add(t);
+                    }
+                }
+                return t;
+            });
+
+        // Act: Dos confirmaciones simultáneas para el mismo veterinario en horarios superpuestos
+        var task1 = Task.Run(() => _service.ConfirmarAsync(turno1Id, usuarioId, "recep.ana"));
+        var task2 = Task.Run(() => _service.ConfirmarAsync(turno2Id, usuarioId, "recep.ana"));
+
+        var resultados = await Task.WhenAll(
+            task1.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException)),
+            task2.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException))
+        );
+
+        // Assert: Exactamente una petición debe tener éxito y la otra debe ser rechazada por colisión horaria
+        var exitosos = resultados.Count(r => r.Exitoso);
+        var conflictos = resultados.Count(r => r.Exception is HorarioNoDisponibleException);
+
+        Assert.Equal(1, exitosos);
+        Assert.Equal(1, conflictos);
+        Assert.Single(turnosConfirmados);
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_DosConfirmacionesSimultaneasMismoTurno_UnaSolaTieneExitoYLaOtraLanzaTurnoNoPendienteException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(10);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Pendiente",
+            Mascota = mascota,
+            Veterinario = vet
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, fechaFutura, 30)).ReturnsAsync(true);
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, fechaFutura, turnoId)).ReturnsAsync(false);
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>())).ReturnsAsync((Turno t) =>
+        {
+            turno.Estado = t.Estado;
+            return t;
+        });
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act: Dos peticiones simultáneas intentando confirmar el mismo turno
+        var task1 = Task.Run(() => _service.ConfirmarAsync(turnoId, usuarioId, "recep.ana"));
+        var task2 = Task.Run(() => _service.ConfirmarAsync(turnoId, usuarioId, "recep.ana"));
+
+        var resultados = await Task.WhenAll(
+            task1.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException)),
+            task2.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException))
+        );
+
+        // Assert: Exactamente una confirmación tiene éxito y la segunda detecta que ya no está pendiente
+        var exitosos = resultados.Count(r => r.Exitoso);
+        var conflictos = resultados.Count(r => r.Exception is TurnoNoPendienteException);
+
+        Assert.Equal(1, exitosos);
+        Assert.Equal(1, conflictos);
+        Assert.Equal("Confirmado", turno.Estado);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.Is<Turno>(t => t.Id == turnoId && t.Estado == "Confirmado")), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfirmarAsync_EntidadPreviamenteRastreadaConEstadoDesactualizado_RecargaEstadoDesdeBDYLanzaTurnoNoPendienteException()
+    {
+        // Arrange: El DbContext ya tenía el turno rastreado en memoria como "Pendiente"
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(9);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Pendiente",
+            Mascota = mascota
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Al ejecutar ReloadAsync dentro del semáforo, EF Core recarga desde la BD descubriendo que ya fue "Confirmado"
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno))
+            .Callback<Turno>(t => t.Estado = "Confirmado")
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNoPendienteException>(() => _service.ConfirmarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+        _turnoRepoMock.Verify(r => r.ReloadAsync(turno), Times.Once);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EntidadPreviamenteRastreadaConEstadoDesactualizado_RecargaEstadoDesdeBDYLanzaTurnoFinalizadoException()
+    {
+        // Arrange: El DbContext tenía rastreado el turno como "Confirmado"
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(11);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Confirmado",
+            Mascota = mascota
+        };
+
+        var dto = new TurnoUpdateDTO
+        {
+            FechaHora = fechaFutura.AddHours(1),
+            MotivoConsulta = "Consulta reprogramada"
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Al ejecutar ReloadAsync dentro del semáforo, se descubre que el turno ya fue "Finalizado" en la BD
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno))
+            .Callback<Turno>(t => t.Estado = "Finalizado")
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoFinalizadoException>(() => _service.UpdateAsync(turnoId, dto));
+        _turnoRepoMock.Verify(r => r.ReloadAsync(turno), Times.Once);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelarAsync_EntidadPreviamenteRastreadaConEstadoDesactualizado_RecargaEstadoDesdeBDYLanzaTurnoYaCanceladoException()
+    {
+        // Arrange: El DbContext tenía rastreado el turno como "Confirmado"
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var fechaFutura = DateTime.UtcNow.AddDays(2).Date.AddHours(11);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fechaFutura,
+            Estado = "Confirmado",
+            Mascota = mascota
+        };
+
+        var dto = new TurnoCancelarDTO { MotivoCancelacion = "Cancelación por cliente" };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Al ejecutar ReloadAsync dentro del semáforo, se descubre que ya fue "Cancelado" concurrentemente
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno))
+            .Callback<Turno>(t => t.Estado = "Cancelado")
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoYaCanceladoException>(() => _service.CancelarAsync(turnoId, dto, Guid.NewGuid(), "recep.ana"));
+        _turnoRepoMock.Verify(r => r.ReloadAsync(turno), Times.Once);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    // --- FINALIZACIÓN MANUAL (CU-06 Extensión / RN-09) ---
+
+    [Fact]
+    public async Task FinalizarAsync_TurnoConfirmado_CambiaEstadoAFinalizadoYRetornaTurnoResponseDTO()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var fecha = DateTime.UtcNow.AddHours(2);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fecha,
+            Estado = "Confirmado",
+            Mascota = mascota,
+            Veterinario = vet
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>())).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act
+        var result = await _service.FinalizarAsync(turnoId, usuarioId, "recep.ana");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("Finalizado", turno.Estado);
+        _turnoRepoMock.Verify(r => r.ReloadAsync(turno), Times.Once);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.Is<Turno>(t => t.Id == turnoId && t.Estado == "Finalizado")), Times.Once);
+    }
+
+    [Fact]
+    public async Task FinalizarAsync_TurnoInexistente_LanzaTurnoNotFoundException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync((Turno?)null);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNotFoundException>(() => _service.FinalizarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Pendiente")]
+    [InlineData("Cancelado")]
+    [InlineData("Finalizado")]
+    public async Task FinalizarAsync_TurnoNoEstaEnEstadoConfirmado_LanzaTurnoNoConfirmadoException(string estadoInvalido)
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = Guid.NewGuid(),
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = DateTime.UtcNow.AddHours(2),
+            Estado = estadoInvalido
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNoConfirmadoException>(() => _service.FinalizarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task FinalizarAsync_EntidadPreviamenteRastreadaConEstadoDesactualizado_RecargaEstadoDesdeBDYLanzaTurnoNoConfirmadoException()
+    {
+        // Arrange: DbContext tenía el turno rastreado como "Confirmado"
+        var turnoId = Guid.NewGuid();
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = Guid.NewGuid(),
+            VeterinarioId = Guid.NewGuid(),
+            FechaHora = DateTime.UtcNow.AddHours(2),
+            Estado = "Confirmado"
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        // Al ejecutar ReloadAsync dentro del semáforo, se descubre que ya fue cancelado en la BD
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno))
+            .Callback<Turno>(t => t.Estado = "Cancelado")
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TurnoNoConfirmadoException>(() => _service.FinalizarAsync(turnoId, Guid.NewGuid(), "recep.ana"));
+        _turnoRepoMock.Verify(r => r.ReloadAsync(turno), Times.Once);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task FinalizarAsync_DosFinalizacionesSimultaneasMismoTurno_UnaSolaTieneExitoYLaOtraLanzaTurnoNoConfirmadoException()
+    {
+        // Arrange
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var usuarioId = Guid.NewGuid();
+        var fecha = DateTime.UtcNow.AddHours(3);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fecha,
+            Estado = "Confirmado",
+            Mascota = mascota,
+            Veterinario = vet
+        };
+
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+        _turnoRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Turno>())).ReturnsAsync((Turno t) =>
+        {
+            turno.Estado = t.Estado;
+            return t;
+        });
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync(turno);
+
+        // Act: Dos peticiones simultáneas intentando finalizar el mismo turno confirmado
+        var task1 = Task.Run(() => _service.FinalizarAsync(turnoId, usuarioId, "recep.ana"));
+        var task2 = Task.Run(() => _service.FinalizarAsync(turnoId, usuarioId, "recep.ana"));
+
+        var resultados = await Task.WhenAll(
+            task1.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException)),
+            task2.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException))
+        );
+
+        // Assert: Exactamente una finalización tiene éxito y la segunda es rechazada por estado ya no confirmado
+        var exitosos = resultados.Count(r => r.Exitoso);
+        var conflictos = resultados.Count(r => r.Exception is TurnoNoConfirmadoException);
+
+        Assert.Equal(1, exitosos);
+        Assert.Equal(1, conflictos);
+        Assert.Equal("Finalizado", turno.Estado);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.Is<Turno>(t => t.Id == turnoId && t.Estado == "Finalizado")), Times.Once);
     }
 }

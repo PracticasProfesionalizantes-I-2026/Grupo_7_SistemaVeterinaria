@@ -1,13 +1,17 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BusinessLogic.Interfaces;
+using BusinessLogic.Services;
 using DataAccess.Context;
 using DataAccess.Entities;
+using DataAccess.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.DTOs.AtencionMedica;
 using Shared.DTOs.Auth;
 using Shared.DTOs.Mascota;
+using Shared.DTOs.Turno;
 using Xunit;
 
 namespace API.Tests;
@@ -1133,5 +1137,306 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
 
         var res3 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dtoValidoConTrue);
         Assert.Equal(HttpStatusCode.Created, res3.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_FalloEnGeneracionSeguimiento_RevierteTransaccionYNoDejaEscriturasParcialesEnSQLite()
+    {
+        // 1. Crear factory y client con ITurnoService que falla durante persistencia de seguimientos crónicos
+        var customFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITurnoService));
+                if (descriptor != null)
+                {
+                    services.Remove(descriptor);
+                }
+                services.AddScoped<ITurnoService, FailingTurnoService>();
+            });
+        });
+
+        var customClient = customFactory.CreateClient();
+
+        // Autenticar en customFactory
+        var loginRes = await customClient.PostAsJsonAsync("/api/auth/login", new LoginRequestDTO
+        {
+            UsuarioOEmail = "vet.carlos",
+            Password = "Vet1234!"
+        });
+        loginRes.EnsureSuccessStatusCode();
+        var authData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        customClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authData!.Token);
+
+        // 2. Obtener mascota activa y su FechaUltimaVisita inicial de la BD de customFactory
+        DateTime? fechaVisitaInicial;
+        Guid mascotaId;
+        using (var scope = customFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var mascota = await db.Mascotas.FirstAsync(m => m.Activa);
+            mascotaId = mascota.Id;
+            fechaVisitaInicial = mascota.FechaUltimaVisita;
+        }
+
+        var motivoUnico = "Fallo Transaccional Test " + Guid.NewGuid();
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            MotivoConsulta = motivoUnico,
+            Anamnesis = "Anamnesis control atómico",
+            ExamenFisico = "Examen clínico normal",
+            Diagnostico = "Diagnóstico prueba atómica",
+            Tratamiento = "Tratamiento prueba",
+            PesoRegistrado = 15m,
+            EsEnfermedadCronica = true,
+            SeguimientoCronico = new SeguimientoCronicoCreateDTO
+            {
+                Frecuencia = "Mensual",
+                JornadaPreferida = "Tarde"
+            }
+        };
+
+        // Act: Enviar la petición que fallará al persistir seguimientos
+        var response = await customClient.PostAsJsonAsync("/api/atenciones", dto);
+
+        // Assert: No debe ser exitoso (falla propagada por la excepción técnica)
+        Assert.False(response.IsSuccessStatusCode);
+
+        // 3. Verificar directamente en SQLite que NO quedó NINGUNA escritura parcial
+        using (var scopeVerif = customFactory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+
+            // a. La atención médica NO debe existir en la BD
+            var atencionPersistida = await dbVerif.AtencionesMedicas
+                .FirstOrDefaultAsync(a => a.MotivoConsulta == motivoUnico);
+            Assert.Null(atencionPersistida);
+
+            // b. Ningún turno de seguimiento debe haberse creado vinculado a esa atención
+            var turnosPersistidos = await dbVerif.Turnos
+                .Where(t => t.MascotaId == mascotaId && t.TipoOrigen == "SeguimientoCronico" && t.FechaCreacion >= DateTime.UtcNow.AddMinutes(-5))
+                .ToListAsync();
+            Assert.Empty(turnosPersistidos);
+
+            // c. FechaUltimaVisita de la mascota NO debe haberse modificado (reversión atómica)
+            var mascotaActualizada = await dbVerif.Mascotas.FindAsync(mascotaId);
+            Assert.NotNull(mascotaActualizada);
+            Assert.Equal(fechaVisitaInicial, mascotaActualizada.FechaUltimaVisita);
+        }
+    }
+
+    [Fact]
+    public async Task Create_AtencionSinSeguimientoCronico_PersisteCorrectamenteEnTransaccion()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        var motivoConsulta = "Control simple sin cronico " + Guid.NewGuid();
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            MotivoConsulta = motivoConsulta,
+            Anamnesis = "Revisión general anual",
+            ExamenFisico = "Normal",
+            Diagnostico = "Sano",
+            Tratamiento = "Ninguno",
+            PesoRegistrado = 28m
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/atenciones", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.Empty(creada.TurnosSeguimiento);
+
+        // Verificar persistencia en SQLite
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var persistida = await dbVerif.AtencionesMedicas.FindAsync(creada.Id);
+            Assert.NotNull(persistida);
+            Assert.Equal(motivoConsulta, persistida.MotivoConsulta);
+
+            var mascotaVerif = await dbVerif.Mascotas.FindAsync(milo.Id);
+            Assert.NotNull(mascotaVerif);
+            Assert.NotNull(mascotaVerif.FechaUltimaVisita);
+        }
+    }
+
+    [Fact]
+    public async Task Create_ReintentoTrasFalloDeSeguimiento_PersisteLimpiamenteSinDuplicarAtencion()
+    {
+        // 1. Configurar un factory donde la primera llamada a generar turnos falla, pero el reintento triunfa
+        var customFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITurnoService));
+                if (descriptor != null)
+                {
+                    services.Remove(descriptor);
+                }
+                services.AddScoped<ITurnoService, FailFirstThenSucceedTurnoService>();
+            });
+        });
+
+        var client = customFactory.CreateClient();
+
+        // Autenticar en este factory
+        var loginRes = await client.PostAsJsonAsync("/api/auth/login", new LoginRequestDTO
+        {
+            UsuarioOEmail = "vet.carlos",
+            Password = "Vet1234!"
+        });
+        loginRes.EnsureSuccessStatusCode();
+        var authData = await loginRes.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authData!.Token);
+
+        Guid mascotaId;
+        using (var scope = customFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vet = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            if (!await db.DisponibilidadesVeterinarios.AnyAsync(d => d.VeterinarioId == vet.Id))
+            {
+                for (int dia = 0; dia <= 6; dia++)
+                {
+                    db.DisponibilidadesVeterinarios.Add(new DisponibilidadVeterinario
+                    {
+                        Id = Guid.NewGuid(),
+                        VeterinarioId = vet.Id,
+                        DiaSemana = (DayOfWeek)dia,
+                        Jornada = "Tarde",
+                        HoraInicio = new TimeSpan(14, 0, 0),
+                        HoraFin = new TimeSpan(18, 0, 0),
+                        Activo = true
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+            var mascota = await db.Mascotas.FirstAsync(m => m.Activa);
+            mascotaId = mascota.Id;
+        }
+
+        var motivoConsulta = "Reintento Post Fallo Test " + Guid.NewGuid();
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            MotivoConsulta = motivoConsulta,
+            Anamnesis = "Control crónico reintento",
+            ExamenFisico = "Examen clínico normal",
+            Diagnostico = "Cardiopatía",
+            Tratamiento = "Medicación diaria",
+            PesoRegistrado = 28m,
+            EsEnfermedadCronica = true,
+            SeguimientoCronico = new SeguimientoCronicoCreateDTO
+            {
+                Frecuencia = "Mensual",
+                JornadaPreferida = "Tarde"
+            }
+        };
+
+        // Act 1: Primer intento falla en la persistencia de turnos -> Rollback de la transacción
+        FailFirstThenSucceedTurnoService.Reset();
+        var respuestaFallo = await client.PostAsJsonAsync("/api/atenciones", dto);
+        Assert.False(respuestaFallo.IsSuccessStatusCode);
+
+        // Comprobar que en la base de datos no quedó guardada la atención médica
+        using (var scopeVerifFallo = customFactory.Services.CreateScope())
+        {
+            var db = scopeVerifFallo.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var atencionNoGuardada = await db.AtencionesMedicas.FirstOrDefaultAsync(a => a.MotivoConsulta == motivoConsulta);
+            Assert.Null(atencionNoGuardada);
+        }
+
+        // Act 2: Segundo intento (Reintento de la solicitud con el mismo payload) -> Triunfa
+        var respuestaReintento = await client.PostAsJsonAsync("/api/atenciones", dto);
+        Assert.Equal(HttpStatusCode.Created, respuestaReintento.StatusCode);
+
+        var creada = await respuestaReintento.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+
+        // 3. Comprobar que en la base de datos existe exactamente UNA atención (sin duplicados) y sus turnos
+        using (var scopeVerif = customFactory.Services.CreateScope())
+        {
+            var db = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var atenciones = await db.AtencionesMedicas
+                .Where(a => a.MotivoConsulta == motivoConsulta)
+                .ToListAsync();
+
+            Assert.Single(atenciones);
+            Assert.Equal(creada.Id, atenciones[0].Id);
+
+            var turnosPersistidos = await db.Turnos
+                .Where(t => t.AtencionMedicaId == creada.Id)
+                .ToListAsync();
+            Assert.NotEmpty(turnosPersistidos);
+        }
+    }
+
+    private class FailingTurnoService : ITurnoService
+    {
+        public Task<TurnoResponseDTO> GetByIdAsync(Guid id) => throw new NotImplementedException();
+        public Task<IEnumerable<TurnoResponseDTO>> GetAgendaAsync(AgendaFilterDTO filtro) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username) => throw new NotImplementedException();
+        public Task<IEnumerable<DisponibilidadVeterinarioDTO>> GetDisponibilidadVeterinarioAsync(Guid veterinarioId)
+        {
+            return Task.FromResult<IEnumerable<DisponibilidadVeterinarioDTO>>(new List<DisponibilidadVeterinarioDTO>
+            {
+                new DisponibilidadVeterinarioDTO { DiaSemana = DayOfWeek.Monday, Jornada = "Tarde" }
+            });
+        }
+        public Task<IEnumerable<DisponibilidadVeterinarioDTO>> ConfigurarDisponibilidadVeterinarioAsync(Guid veterinarioId, ConfigurarDisponibilidadDTO dto) => throw new NotImplementedException();
+        public Task<GenerarTurnosCronicosResponseDTO> GenerarTurnosSeguimientoCronicoAsync(GenerarTurnosCronicosDTO dto)
+        {
+            throw new DbUpdateException("Falla técnica simulada en SQLite al persistir turnos de seguimiento crónico", new Exception());
+        }
+    }
+
+    private class FailFirstThenSucceedTurnoService : ITurnoService
+    {
+        private readonly TurnoService _realService;
+        private static int _failCount = 1;
+
+        public static void Reset() => _failCount = 1;
+
+        public FailFirstThenSucceedTurnoService(
+            ITurnoRepository turnoRepository,
+            IDisponibilidadVeterinarioRepository disponibilidadRepository,
+            IMascotaRepository mascotaRepository,
+            IUsuarioRepository usuarioRepository)
+        {
+            _realService = new TurnoService(turnoRepository, disponibilidadRepository, mascotaRepository, usuarioRepository);
+        }
+
+        public Task<TurnoResponseDTO> GetByIdAsync(Guid id) => _realService.GetByIdAsync(id);
+        public Task<IEnumerable<TurnoResponseDTO>> GetAgendaAsync(AgendaFilterDTO filtro) => _realService.GetAgendaAsync(filtro);
+        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto) => _realService.CreateManualAsync(dto);
+        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto) => _realService.UpdateAsync(id, dto);
+        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username) => _realService.ConfirmarAsync(id, usuarioId, username);
+        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username) => _realService.FinalizarAsync(id, usuarioId, username);
+        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username) => _realService.CancelarAsync(id, dto, usuarioId, username);
+        public Task<IEnumerable<DisponibilidadVeterinarioDTO>> GetDisponibilidadVeterinarioAsync(Guid veterinarioId) => _realService.GetDisponibilidadVeterinarioAsync(veterinarioId);
+        public Task<IEnumerable<DisponibilidadVeterinarioDTO>> ConfigurarDisponibilidadVeterinarioAsync(Guid veterinarioId, ConfigurarDisponibilidadDTO dto) => _realService.ConfigurarDisponibilidadVeterinarioAsync(veterinarioId, dto);
+
+        public Task<GenerarTurnosCronicosResponseDTO> GenerarTurnosSeguimientoCronicoAsync(GenerarTurnosCronicosDTO dto)
+        {
+            if (Interlocked.Exchange(ref _failCount, 0) == 1)
+            {
+                throw new DbUpdateException("Falla técnica simulada en primer intento", new Exception());
+            }
+            return _realService.GenerarTurnosSeguimientoCronicoAsync(dto);
+        }
     }
 }

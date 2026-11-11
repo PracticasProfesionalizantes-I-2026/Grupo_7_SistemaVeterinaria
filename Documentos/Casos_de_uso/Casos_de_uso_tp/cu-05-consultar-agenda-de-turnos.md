@@ -34,7 +34,7 @@ Permite al veterinario o a la recepcionista consultar el listado y cronograma de
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
 * **1a. Parámetros de fecha o filtros inválidos (HTTP 400 Bad Request):**
-  1. Si en el Paso 1 el parámetro `fecha` no corresponde a una fecha válida (ej. `YYYY-MM-DD` mal formado) o el `estado` no coincide con los valores permitidos del enum (`Pendiente`, `Confirmado`, `EnAtencion`, `Finalizado`, `Cancelado`).
+  1. Si en el Paso 1 el parámetro `fecha` no corresponde a una fecha válida (ej. `YYYY-MM-DD` mal formado) o el `estado` no coincide con los valores permitidos del catálogo (`Pendiente`, `Confirmado`, `Finalizado`, `Cancelado`).
   2. La Capa de Presentación rechaza la petición por validación de parámetros.
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 

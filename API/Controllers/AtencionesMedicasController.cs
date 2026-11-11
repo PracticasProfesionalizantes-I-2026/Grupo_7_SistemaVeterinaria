@@ -88,6 +88,10 @@ public class AtencionesMedicasController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (SeguimientoCronicoDuplicadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 
     // RN-01: Inmutabilidad de las Atenciones Médicas (HTTP 409 Conflict)

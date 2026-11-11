@@ -123,6 +123,78 @@ public class TurnosController : ControllerBase
         }
     }
 
+    [HttpPost("{id:guid}/confirmar")]
+    public async Task<ActionResult<TurnoResponseDTO>> Confirmar(Guid id)
+    {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Usuario";
+
+        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId))
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
+        try
+        {
+            var result = await _turnoService.ConfirmarAsync(id, usuarioId, usuarioUsername);
+            return Ok(result);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (TurnoNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (MascotaNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (MascotaInactivaException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoNoPendienteException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (HorarioNoDisponibleException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/finalizar")]
+    public async Task<ActionResult<TurnoResponseDTO>> Finalizar(Guid id)
+    {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Usuario";
+
+        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId))
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
+        try
+        {
+            var result = await _turnoService.FinalizarAsync(id, usuarioId, usuarioUsername);
+            return Ok(result);
+        }
+        catch (TurnoNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoNoConfirmadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoFinalizadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
     [HttpPatch("{id:guid}/cancelar")]
     [HttpPost("{id:guid}/cancelar")]
     public async Task<ActionResult<TurnoResponseDTO>> Cancelar(Guid id, [FromBody] TurnoCancelarDTO dto)

@@ -2,6 +2,8 @@
 
 > Especificación elaborada siguiendo la guía `GUIA-Especificacion-Casos-de-Uso.md` (sección 3).
 > Implementación del ciclo de vida de los turnos con reglas de negocio RN-06 (asociación a dueño registrado), RN-07 (restricción en mascotas inactivas), RN-08 (no solapamiento de agenda por veterinario en bloques de 30 minutos), RN-09 (inmutabilidad de turnos finalizados), RN-10 (disponibilidad horaria configurable del profesional) y RN-11 (generación automática de turnos para seguimiento crónico).
+> Incorpora la especificación del ciclo de vida completo de 4 estados (`Pendiente`, `Confirmado`, `Cancelado`, `Finalizado`) y transiciones formalizadas (`Pendiente → Confirmado`, `Pendiente → Cancelado`, `Confirmado → Cancelado`, `Confirmado → Finalizado`), con finalización manual por Recepcionista o Veterinario (`POST /api/turnos/{id}/finalizar`).
+> Justificación de diseño: Se resuelve la inalcanzabilidad del estado `Finalizado` mediante una máquina de estados finita alternativa con finalización manual explícita, sin implementar el estado intermedio transitorio `EnAtencion` y preservando la independencia absoluta entre el ciclo de vida de los turnos y el registro clínico de atenciones médicas.
 > Incorpora el procedimiento de cancelación con motivo obligatorio, registro de fecha/hora, usuario responsable y liberación de horario (INF-05).
 > Incorpora la configuración parametrizable de días y horarios de atención por veterinario (jornadas de mañana, tarde o ambas) con turnos de duración fija de 30 minutos.
 > Incorpora el mecanismo de generación y almacenamiento automático de turnos de seguimiento para mascotas con diagnóstico de enfermedad crónica durante los próximos seis meses.
@@ -21,9 +23,19 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite a la recepcionista o al veterinario registrar un nuevo turno manual en un bloque de 30 minutos, reprogramar la fecha/hora de una cita existente o cancelar un turno programado. Cada veterinario cuenta con su propia configuración parametrizable de días y horarios de atención (jornadas de mañana, tarde o ambas con sus respectivos horarios de inicio y fin), debiendo asignarse los turnos exclusivamente dentro de dicha disponibilidad (RN-10) y sin superposición horaria (RN-08). La cancelación exige un motivo obligatorio y confirmación previa; registra automáticamente la fecha/hora y usuario responsable, cambia el estado a Cancelado de manera irreversible y libera el bloque de 30 minutos para nuevas reservas, conservando el registro histórico para auditoría y reportes. Los turnos finalizados no pueden modificarse ni cancelarse (RN-09).
+Permite al personal de la clínica veterinaria (Recepcionista o Veterinario) gestionar el ciclo de vida completo de los turnos de atención a través de una máquina de estados finita de cuatro (4) estados exclusivos: **`Pendiente`**, **`Confirmado`**, **`Cancelado`** y **`Finalizado`**.
 
-Asimismo, este caso de uso implementa el mecanismo de generación y almacenamiento automático de una serie de turnos de seguimiento con estado inicial `Pendiente` durante los próximos seis meses para mascotas que reciban un diagnóstico de enfermedad crónica en una atención médica (CU-04). La generación respeta la frecuencia indicada (quincenal, mensual, bimestral o trimestral) y la jornada preferida del dueño (mañana, tarde o indistinta), buscando disponibilidad en bloques de 30 minutos en la agenda del veterinario sin superposiciones y sin alternar automáticamente entre mañana y tarde ante una preferencia explícita. Cada turno de la serie generada cuenta con trazabilidad a la atención médica de origen y puede cancelarse o reprogramarse individualmente sin afectar al resto de la serie.
+Las transiciones permitidas son:
+- **`Pendiente → Confirmado`:** Confirmación manual de turnos pendientes (ej. generados por seguimiento crónico) validando disponibilidad horaria, ausencia de solapamiento y paciente activo (`POST /api/turnos/{id}/confirmar`).
+- **`Pendiente → Cancelado`:** Cancelación directa de turnos pendientes con motivo obligatorio (`POST /api/turnos/{id}/cancelar`).
+- **`Confirmado → Cancelado`:** Cancelación de turnos previamente confirmados con motivo obligatorio, liberando el bloque horario de 30 minutos (`POST /api/turnos/{id}/cancelar`).
+- **`Confirmado → Finalizado`:** Finalización manual de la cita por parte del personal autorizado (`POST /api/turnos/{id}/finalizar`).
+
+**Independencia de procesos:** Los turnos y las atenciones médicas son procesos funcional y técnicamente independientes. El registro de una atención médica no finaliza ni altera automáticamente ningún turno, ni existen transiciones disparadas automáticamente por el transcurso del tiempo. La finalización de un turno es una acción manual explícita reservada a Recepcionistas y Veterinarios.
+
+Cada veterinario cuenta con su propia configuración parametrizable de días y horarios de atención (jornadas de mañana, tarde o ambas con sus respectivos horarios de inicio y fin), debiendo asignarse los turnos exclusivamente dentro de dicha disponibilidad (**RN-10**) y sin superposición horaria (**RN-08**). La cancelación exige un motivo obligatorio y confirmación previa; registra automáticamente la fecha/hora y usuario responsable, cambia el estado a `Cancelado` de manera irreversible y libera el bloque de 30 minutos para nuevas reservas, conservando el registro histórico para auditoría y reportes. Los turnos en estado `Finalizado` son estrictamente inmutables: no pueden cancelarse, reprogramarse ni volver a transicionar (**RN-09**).
+
+Asimismo, este caso de uso implementa el mecanismo de generación y almacenamiento automático de una serie de turnos de seguimiento con estado inicial `Pendiente` durante los próximos seis meses para mascotas que reciban un diagnóstico de enfermedad crónica en una atención médica (CU-04 / **RN-11**). La generación respeta la frecuencia indicada (quincenal, mensual, bimestral o trimestral) y la jornada preferida del dueño (mañana, tarde o indistinta), buscando disponibilidad en bloques de 30 minutos en la agenda del veterinario sin superposiciones y sin alternar automáticamente entre mañana y tarde ante una preferencia explícita. Cada turno de la serie generada cuenta con trazabilidad a la atención médica de origen (`AtencionMedicaId`) y puede confirmarse, cancelarse o reprogramarse individualmente sin afectar al resto de la serie.
 
 Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, licencias del personal y excepciones especiales de agenda.
 
@@ -31,8 +43,10 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 - El actor debe contar con una sesión activa y un Token JWT con rol de `Recepcionista` o `Veterinario`.
 - Para registrar un nuevo turno manual, la mascota debe estar registrada en el sistema, encontrarse en estado **Activa** (**RN-07**) y estar asociada a un dueño registrado (**RN-06**).
 - El veterinario asignado debe encontrarse registrado, habilitado y contar con disponibilidad horaria configurada para el día y rango solicitado (**RN-10**).
-- Para cancelar o reprogramar un turno, este debe existir en el sistema y no encontrarse en estado **Finalizado** (**RN-09**) ni previamente **Cancelado**.
-- Para la invocación del mecanismo de generación automática por enfermedad crónica, debe existir una atención médica registrada (CU-04) con diagnóstico crónico y no deben existir turnos de seguimiento generados previamente para dicha atención.
+- Para confirmar un turno (`POST /api/turnos/{id}/confirmar`), el turno debe encontrarse en estado **`Pendiente`** y su fecha/hora no debe pertenecer al pasado.
+- Para finalizar un turno (`POST /api/turnos/{id}/finalizar`), el turno debe encontrarse en estado **`Confirmado`**.
+- Para cancelar o reprogramar un turno, este debe existir en el sistema y no encontrarse en estado **`Finalizado`** (**RN-09**) ni previamente **`Cancelado`**.
+- Para la invocación del mecanismo de generación automática por enfermedad crónica, debe registrarse una atención médica con diagnóstico crónico y parámetros válidos de frecuencia y jornada preferida (**RN-11**).
 
 ### 3. FLUJO PRINCIPAL (Camino Feliz)
 
@@ -87,6 +101,25 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 6. Persiste en la base de datos la serie de turnos generados vinculados a la atención médica en una operación atómica.
 7. Retorna el conjunto de turnos generados con sus fechas y horarios asignados para ser reportados en la respuesta de la atención.
 
+#### 3.5 Confirmar turno manual o de seguimiento (Pendiente → Confirmado)
+1. La Recepcionista o el Veterinario envía una petición `POST /api/turnos/{id}/confirmar` para un turno en estado `Pendiente`.
+2. El sistema verifica que el turno exista (si no existe, lanza `TurnoNotFoundException` → 404 Not Found).
+3. El sistema adquiere el bloqueo por concurrencia para el veterinario actuante (`VeterinarioLockManager`) y recarga el estado del turno desde base de datos (`ReloadAsync`).
+4. Valida que el turno se encuentre efectivamente en estado `Pendiente` (si no, lanza `TurnoNoPendienteException` → 409 Conflict).
+5. Valida que la mascota se encuentre activa (**RN-07**) y que la fecha y hora del turno no pertenezcan al pasado.
+6. Verifica que el turno se encuentre dentro de la disponibilidad configurada del veterinario (**RN-10**) y que no exista otro turno activo (`Confirmado` o `Finalizado`) en ese mismo bloque de 30 minutos (**RN-08**).
+7. Cambia el estado del turno a **`Confirmado`** y persiste la actualización en base de datos.
+8. Retorna el turno actualizado con código **200 OK**.
+
+#### 3.6 Finalización manual del turno (Confirmado → Finalizado)
+1. La Recepcionista o el Veterinario envía una petición `POST /api/turnos/{id}/finalizar` sobre un turno de la agenda.
+2. El sistema verifica que el turno exista (si no existe, lanza `TurnoNotFoundException` → 404 Not Found).
+3. El sistema adquiere el bloqueo por concurrencia para el veterinario actuante (`VeterinarioLockManager`) y recarga el estado del turno desde base de datos (`ReloadAsync`).
+4. Valida que el turno se encuentre estrictamente en estado `Confirmado` (si el turno está en estado `Pendiente`, `Cancelado` o `Finalizado`, lanza `TurnoNoConfirmadoException` → 409 Conflict).
+5. Cambia el estado del turno a **`Finalizado`** y persiste la actualización en base de datos.
+6. A partir de este momento, el turno adquiere carácter estrictamente inmutable (**RN-09**): no puede cancelarse, reprogramarse, confirmarse ni refinalizarse.
+7. Retorna el turno finalizado con código **200 OK**.
+
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
 * **1a. JSON inválido o malformado (HTTP 400 Bad Request):**
@@ -133,6 +166,21 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
   2. El sistema no altera la preferencia indicada (no cambia de mañana a tarde ni viceversa) y no asigna un turno fuera de las condiciones aprobadas.
   3. El sistema registra e informa la contingencia indicando la fecha en la que no se pudo obtener cupo disponible para que el personal coordine manualmente. Fin del flujo.
 
+* **3i. Intento de confirmar turno que no está en estado Pendiente (HTTP 409 Conflict):**
+  1. Si en el flujo 3.5 el usuario intenta confirmar un turno que se encuentra en un estado distinto a `Pendiente` (por ejemplo, ya `Confirmado`, `Cancelado` o `Finalizado`).
+  2. La Capa de Negocio lanza `TurnoNoPendienteException`.
+  3. El sistema devuelve un código **409 Conflict** informando el estado actual del turno. Fin del caso de uso.
+
+* **3j. Intento de confirmar turno con fecha en el pasado (HTTP 400 Bad Request):**
+  1. Si en el flujo 3.5 la fecha y hora del turno a confirmar es anterior a la fecha y hora actual UTC.
+  2. La Capa de Negocio lanza `ValidationException`.
+  3. El sistema devuelve un código **400 Bad Request** informando que no es posible confirmar turnos pasados. Fin del caso de uso.
+
+* **3k. Intento de finalizar turno que no está en estado Confirmado (HTTP 409 Conflict):**
+  1. Si en el flujo 3.6 el usuario intenta finalizar un turno que se encuentra en estado `Pendiente`, `Cancelado` o ya `Finalizado`.
+  2. La Capa de Negocio lanza `TurnoNoConfirmadoException`.
+  3. El sistema devuelve un código **409 Conflict** informando que únicamente los turnos en estado `Confirmado` pueden finalizarse. Fin del caso de uso.
+
 * **4a. Error de persistencia en base de datos (HTTP 500 Internal Server Error):**
   1. Si ocurre un fallo imprevisto al intentar persistir los datos de alta, reprogramación o la serie automática en la base de datos.
   2. El sistema captura el error y devuelve un código **500 Internal Server Error**. Fin del caso de uso.
@@ -173,18 +221,27 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 ### 5. SUB-VARIACIONES (opcional)
 1. **Creación / Alta de turno manual:** Registra una nueva cita médica para una mascota activa asociada a su dueño en estado Confirmado, en un bloque de 30 minutos dentro de la disponibilidad configurada del veterinario (**RN-08**, **RN-10**).
 2. **Reprogramación de turno:** Actualiza la fecha/hora o profesional del turno siempre que este no se encuentre Finalizado (**RN-09**) ni Cancelado, validando la disponibilidad de agenda (**RN-08**, **RN-10**). Si el turno pertenece a una serie de seguimiento crónico, la reprogramación es estrictamente individual y no altera los restantes turnos de la serie.
-3. **Cancelación de turno:** Procedimiento detallado en el Flujo Principal 3.2, mediante el cual el turno pasa al estado `"Cancelado"` con motivo obligatorio, registro de fecha/hora y usuario responsable, liberando el bloque de 30 minutos en la agenda para nuevas asignaciones y preservando el registro histórico sin eliminación física ni posibilidad de reactivación. Si el turno cancelado pertenece a una serie crónica, los restantes turnos de la serie permanecen vigentes.
+3. **Cancelación de turno:** Procedimiento detallado en el Flujo Principal 3.2, mediante el cual el turno en estado `Pendiente` o `Confirmado` pasa al estado `"Cancelado"` con motivo obligatorio, registro de fecha/hora y usuario responsable, liberando el bloque de 30 minutos en la agenda para nuevas asignaciones y preservando el registro histórico sin eliminación física ni posibilidad de reactivación. Si el turno cancelado pertenece a una serie crónica, los restantes turnos de la serie permanecen vigentes.
 4. **Generación automática de turnos para seguimiento crónico:** Mecanismo detallado en el Flujo Principal 3.4, mediante el cual se genera y almacena una serie de turnos con estado `Pendiente` a lo largo de seis meses para pacientes diagnosticados con patologías crónicas, respetando frecuencia, jornada preferida y agenda configurada (**RN-11**).
+5. **Confirmación de turno:** Transición explícita de `Pendiente` a `Confirmado` mediante `POST /api/turnos/{id}/confirmar`, validando pertenencia a la agenda del veterinario, ausencia de solapamientos y paciente activo.
+6. **Finalización manual de turno:** Transición explícita de `Confirmado` a `Finalizado` mediante `POST /api/turnos/{id}/finalizar`, formalizando el cierre de la cita médica y otorgándole carácter inmutable permanente (**RN-09**).
 
 ### 6. POSTCONDICIONES
 - **Alta de turno manual exitosa:** Se crea el registro en la tabla `Turnos` con estado Confirmado, origen `Manual`, y el bloque de 30 minutos queda ocupado en la agenda del profesional (**RN-08**).
 - **Reprogramación exitosa:** Se actualiza la fecha/hora o profesional del turno, liberando el bloque horario anterior y ocupando el nuevo bloque validado de 30 minutos.
+- **Confirmación de turno exitosa (Flujo 3.5):**
+  - El turno pasa a estado **Confirmado**.
+  - El bloque de 30 minutos se mantiene reservado en la agenda del profesional (**RN-08**).
+- **Finalización de turno exitosa (Flujo 3.6):**
+  - El turno pasa a estado **Finalizado**.
+  - El turno adquiere carácter estrictamente inmutable (**RN-09**), no pudiendo cancelarse, reprogramarse, confirmarse ni refinalizarse.
+  - Se mantiene la independencia absoluta con las atenciones médicas: no se finalizan ni generan atenciones automáticamente.
 - **Generación automática de seguimiento crónico exitosa (Flujo 3.4):**
   - Se crea la serie de turnos con estado `Pendiente`, origen `SeguimientoCronico` (`EsAutomatico = true`), vinculados a la `AtencionMedicaId` de origen (**RN-11**).
   - Cada turno ocupa un bloque de 30 minutos en las fechas y jornadas calculadas sin solapamientos (**RN-08**, **RN-10**).
-  - Cada turno de la serie queda habilitado para ser reprogramado o cancelado de manera independiente.
+  - Cada turno de la serie queda habilitado para ser confirmado, reprogramado o cancelado de manera independiente.
 - **Cancelación de turno exitosa (Flujo 3.2):**
-  - El turno cambia su estado a **Cancelado** de forma irreversible (no puede reactivarse).
+  - El turno cambia su estado a **Cancelado** de forma irreversible (no puede reactivarse), sea que provenía de `Pendiente` o de `Confirmado`.
   - El turno cancelado permanece íntegramente registrado en la base de datos como registro histórico (no se elimina físicamente), almacenando el motivo obligatorio de cancelación, la fecha y hora exacta de la cancelación (UTC) y el usuario responsable.
   - El bloque de 30 minutos que ocupaba el turno cancelado queda liberado en el control de disponibilidad de la agenda, permitiendo registrar una nueva cita para cualquier mascota con el mismo veterinario (**RN-08**).
   - Si el turno pertenecía a una serie crónica, los demás turnos de la serie continúan programados y activos.
@@ -221,7 +278,7 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
    - Quedan fuera del alcance de esta versión feriados, vacaciones, licencias del personal y excepciones especiales de calendario.
 2. **Liberación de horario y compatibilidad con RN-08:**
    - La regla **RN-08** prohíbe la superposición de turnos para un mismo profesional en bloques fijos de 30 minutos.
-   - El control de disponibilidad horaria evalúa exclusivamente aquellos turnos que mantengan una reserva vigente del horario (estados activos tales como `Pendiente`, `Confirmado` o `EnAtencion`).
+   - El control de disponibilidad horaria evalúa exclusivamente aquellos turnos que mantengan una reserva vigente del horario (estados activos tales como `Pendiente` o `Confirmado`).
    - Al cancelarse un turno, este deja de computar como ocupado en el control de disponibilidad; por lo tanto, el bloque de 30 minutos queda disponible de inmediato para ser reservado por otro turno con el mismo veterinario.
    - Todo nuevo turno asignado en ese horario contará con su propio identificador y registro independiente; bajo ninguna circunstancia se sobrescribe ni se reutiliza el registro del turno cancelado.
 3. **Búsqueda automática de disponibilidad para seguimiento crónico (RN-11):**
@@ -235,10 +292,31 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
    - **Límite máximo de búsqueda hacia adelante (7 días):** Si en la fecha proyectada no existe disponibilidad en la jornada preferida, el sistema buscará en los siguientes días de atención del profesional hasta un máximo de siete (7) días corridos posteriores a la fecha ideal calculada. Superado dicho plazo, se considerará que no existe cupo para ese período para evitar desfasar el esquema clínico de controles.
    - **Política de asignación parcial tolerante con reporte de pendientes:** Si en alguna de las fechas proyectadas de la serie no se consigue disponibilidad dentro del margen de 7 días y en la jornada preferida, el sistema registrará todos los turnos que sí hayan obtenido disponibilidad y retornará en la respuesta el listado de turnos asignados junto con las fechas que no pudieron cubrirse (`fechasPendientes[]`), permitiendo al personal de la clínica coordinar manualmente esas citas específicas sin perder los turnos asignados del plan.
 
+### Máquina de Estados y Ciclo de Vida de los Turnos (RN-09)
+
+- **Estados del Turno:** El sistema implementa una máquina de estados finita con cuatro (4) estados exclusivos: `Pendiente`, `Confirmado`, `Cancelado` y `Finalizado`.
+- **Matriz de Transiciones Permitidas:**
+
+| Estado Inicial | Transición / Acción | Estado Destino | Endpoint / Mecanismo | Roles Autorizados |
+| --- | --- | --- | --- | --- |
+| `Pendiente` | Confirmar | `Confirmado` | `POST /api/turnos/{id}/confirmar` | Recepcionista, Veterinario |
+| `Pendiente` | Cancelar | `Cancelado` | `POST /api/turnos/{id}/cancelar` | Recepcionista, Veterinario |
+| `Confirmado` | Cancelar | `Cancelado` | `POST /api/turnos/{id}/cancelar` | Recepcionista, Veterinario |
+| `Confirmado` | Finalizar | `Finalizado` | `POST /api/turnos/{id}/finalizar` | Recepcionista, Veterinario |
+| `Finalizado` | *(Inmutable)* | — | *(Operación rechazada con 409 Conflict)* | — |
+| `Cancelado` | *(Inmutable)* | — | *(Operación rechazada con 409 Conflict)* | — |
+
+- **Justificación de diseño (Resolución de inalcanzabilidad de `Finalizado`):**
+  La auditoría docente detectó que en el diseño preliminar el estado `Finalizado` resultaba inalcanzable y sugirió introducir el estado intermedio `EnAtencion`. La decisión funcional y técnica adoptada resolvió la inalcanzabilidad mediante una máquina de estados alternativa de 4 estados sin implementar `EnAtencion`:
+  1. Se evitó incorporar un estado intermedio efímero (`EnAtencion`) que complejiza la concurrencia y no responde a la operativa real de la clínica.
+  2. Se implementó la transición manual explícita `Confirmado → Finalizado` a través de `POST /api/turnos/{id}/finalizar`, permitida exclusivamente para `Recepcionista` y `Veterinario` (`403 Forbidden` para `Administrador`).
+  3. Se preservó la estricta **independencia entre turnos y atenciones médicas**: registrar una atención médica no finaliza automáticamente un turno ni se finalizan turnos por el transcurso del tiempo.
+- **Verificación de cancelación:** Se encuentra expresamente habilitada y verificada en el código la transición `Confirmado → Cancelado`, permitiendo anular turnos confirmados con motivo obligatorio y liberando de inmediato el bloque de 30 minutos en la agenda.
+
 ### Nota: Validación vs. Verificación aplicada
 
 - **Validación (Presentación, → 400 / UI):** Presencia de identificadores requeridos, formato ISO de fecha/hora, restricción de fechas en el pasado, alineación a bloques de 30 minutos, ingreso obligatorio del motivo de cancelación no vacío (`"Debe ingresar un motivo de cancelación"`) y confirmación del usuario antes de proceder.
-- **Verificación (Negocio, → 404/409):** Validación de existencia de mascota y dueño (**RN-06**), comprobación de estado activo de la mascota (**RN-07**), verificación de pertenencia del horario a la jornada configurada del profesional (**RN-10**), verificación de no solapamiento en la agenda del profesional (**RN-08**), comprobación de que el turno a cancelar o modificar no esté en estado Finalizado (**RN-09**), verificación de no cancelación previa y verificación de no duplicación de serie crónica (**RN-11**).
+- **Verificación (Negocio, → 404/409):** Validación de existencia de mascota y dueño (**RN-06**), comprobación de estado activo de la mascota (**RN-07**), verificación de pertenencia del horario a la jornada configurada del profesional (**RN-10**), verificación de no solapamiento en la agenda del profesional (**RN-08**), comprobación de que el turno a cancelar o modificar no esté en estado Finalizado (**RN-09**), verificación de estado previo para confirmación (`Pendiente`) y finalización (`Confirmado`), verificación de no cancelación previa y verificación de no duplicación de serie crónica (**RN-11**).
 
 ### Matriz de trazabilidad CU-06 → Test
 
@@ -248,6 +326,8 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 | Flujo principal — Cancelar turno | `200 OK` | `CancelTurnoAsync_WithValidMotivo_SetsCancelledAndLogsAudit` | `CancelTurno_WithValidMotivo_Returns200OK` |
 | Flujo principal — Reprogramar turno | `200 OK` | `UpdateTurnoAsync_WithValidNewSchedule_UpdatesAndReturnsTurnoDTO` | `UpdateTurno_WithValidSchedule_Returns200OK` |
 | Flujo 3.4 — Generación crónica exitosa | `200 OK / 201 Created` | `GenerarTurnosSeguimientoCronicoAsync_WithValidFrequency_GeneratesSixMonthsSeries` | `GenerarTurnosCronicos_WithValidData_ReturnsSuccessWithTurnosList` |
+| Flujo 3.5 — Confirmar turno pendiente | `200 OK` | `ConfirmarAsync_TurnoExistenteEnEstadoPendiente_ConfirmaTurnoYRetornaTurnoResponseDTO` | `Confirmar_ConRolRecepcionista_TurnoPendienteValido_Retorna200OKYEstadoConfirmado` |
+| Flujo 3.6 — Finalizar turno confirmado | `200 OK` | `FinalizarAsync_TurnoConfirmado_CambiaEstadoAFinalizadoYRetornaTurnoResponseDTO` | `Finalizar_ConRolRecepcionista_TurnoConfirmado_Retorna200OKYEstadoFinalizado` |
 | 1a. JSON inválido | `400 Bad Request` | — (model binding en Presentación) | `CreateTurno_WithMalformedPayload_Returns400BadRequest` |
 | 2a. Fecha en el pasado | `400 Bad Request` | — (validación DataAnnotations) | `CreateTurno_WithPastDate_Returns400BadRequest` |
 | 3a. Solapamiento de horario | `409 Conflict` | `CreateTurnoAsync_WithOverlappingSchedule_ThrowsHorarioNoDisponibleException` | `CreateTurno_WhenScheduleOverlaps_Returns409Conflict` |
@@ -258,12 +338,15 @@ Quedan fuera del alcance de esta versión la gestión de feriados, vacaciones, l
 | 3f. Horario fuera de disponibilidad | `409 Conflict` | `CreateTurnoAsync_OutsideVeterinarioAvailability_ThrowsHorarioNoDisponibleException` | `CreateTurno_WhenOutsideAvailability_Returns409Conflict` |
 | 3g. Serie crónica duplicada | `409 Conflict` | `GenerarTurnosCronicosAsync_WhenAlreadyGenerated_ThrowsConflictException` | `GenerarTurnosCronicos_WhenDuplicate_Returns409Conflict` |
 | 3h. Búsqueda respeta jornada preferida | `200 OK / 201 Created` | `GenerarTurnosCronicosAsync_RespectsPreferredShiftWithoutSwitching` | `GenerarTurnosCronicos_RespectsShift_ReturnsAssignedSlots` |
+| 3i. Confirmar turno no pendiente | `409 Conflict` | `ConfirmarAsync_TurnoNoEstaEnEstadoPendiente_LanzaTurnoNoPendienteException` | `Confirmar_CuandoHorarioYaOcupadoPorTurnoConfirmado_Retorna409Conflict` |
+| 3k. Finalizar turno no confirmado | `409 Conflict` | `FinalizarAsync_TurnoNoEstaEnEstadoConfirmado_LanzaTurnoNoConfirmadoException` | `Finalizar_TurnoEnEstadoPendiente_Retorna409Conflict` |
 | 4a. Error de persistencia en alta | `500 Internal Server Error` | `CreateTurnoAsync_WhenDbFails_ThrowsException` | `CreateTurno_WhenDbFails_Returns500InternalServerError` |
 | A1. Motivo de cancelación vacío | `400 Bad Request` | `CancelTurnoAsync_WhenMotivoIsEmpty_ThrowsValidationException` | `CancelTurno_WhenMotivoIsEmpty_Returns400BadRequest` |
 | A2. Cancelación no confirmada | N/A (UI Diálogo) | — (cancelación cancelada en interfaz de usuario) | `Turno_AlCancelarConfirmacion_ConservaEstadoYHorarioOcupado` |
 | A3. Turno finalizado al cancelar | `409 Conflict` | `CancelTurnoAsync_WhenTurnoIsFinalizado_ThrowsTurnoFinalizadoException` | `CancelTurno_WhenTurnoIsFinalizado_Returns409Conflict` |
 | A4. Turno previamente cancelado | `409 Conflict` | `CancelTurnoAsync_WhenTurnoAlreadyCancelled_ThrowsTurnoYaCanceladoException` | `CancelTurno_WhenAlreadyCancelled_Returns409Conflict` |
 | A5. Error durante la cancelación | `500 Internal Server Error` | `CancelTurnoAsync_WhenDbFails_ThrowsExceptionAndRollbacks` | `CancelTurno_WhenDbFails_Returns500AndPreservesStatus` |
+| Cancelación de turno confirmado | `200 OK` | `CancelTurnoAsync_WithValidMotivo_SetsCancelledAndLogsAudit` | `CancelTurno_WithValidMotivo_Returns200OK` |
 | Cancelación individual en serie crónica | `200 OK` | `CancelTurnoAsync_IndividualChronicTurno_CancelsOnlyTargetTurnoAndPreservesOthers` | `CancelTurno_ChronicTurno_CancelsOnlyTargetAndPreservesOthers` |
 | Liberación de horario / Nueva reserva | `201 Created` | `CreateTurnoAsync_InCancelledSlot_SucceedsWithoutOverlapConflict` | `CreateTurno_InCancelledSlot_Returns201Created` |
 

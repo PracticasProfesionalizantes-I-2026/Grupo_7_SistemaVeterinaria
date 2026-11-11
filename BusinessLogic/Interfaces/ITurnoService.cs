@@ -11,6 +11,8 @@ public interface ITurnoService
     // Operaciones sobre turnos individuales
     Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto);
     Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto);
+    Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username);
+    Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username);
     Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username);
 
     // Disponibilidad de veterinarios

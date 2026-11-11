@@ -12,4 +12,5 @@ public interface ITurnoRepository
     Task<Turno> CreateAsync(Turno turno);
     Task<Turno> UpdateAsync(Turno turno);
     Task CreateRangeAsync(IEnumerable<Turno> turnos);
+    Task ReloadAsync(Turno turno);
 }

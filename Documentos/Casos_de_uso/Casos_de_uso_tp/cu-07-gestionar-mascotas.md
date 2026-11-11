@@ -4,6 +4,7 @@
 > Implementación del ciclo de vida de mascotas con reglas de negocio RN-06 (asociación de mascota a dueño registrado), RN-07 (baja lógica y preservación histórica de mascotas) y procedimiento de reasignación de titularidad con historial de propietarios.
 > Incorpora la restricción de permisos administrativos exclusivos para Veterinario y Recepcionista, excluyendo al Administrador (AMB-02).
 > Incorpora la especificación de respuestas HTTP para la baja lógica de mascotas: 200 OK en baja exitosa y 409 Conflict ante mascota previamente inactiva (MEJ-03).
+> La Historia Clínica no constituye una entidad persistida ni tabla física independiente, sino una proyección lógica derivada e identificable a través de la propia identidad de la mascota (`MascotaId`), construida a partir de los datos del paciente y sus atenciones médicas.
 
 | Campo | Valor |
 | --- | --- |
@@ -31,7 +32,7 @@ Permite al personal de la clínica veterinaria (Veterinario/a o Recepcionista) r
 2. El sistema solicita los datos de la mascota (nombre, especie, raza, sexo, fecha de nacimiento o edad, peso, observaciones) y el dueño al que se asociará.
 3. El usuario completa los datos y selecciona al dueño previamente registrado.
 4. El sistema verifica que el dueño exista en el sistema (**RN-06**) y que los datos ingresados sean válidos.
-5. El sistema registra la nueva mascota en estado **Activa** y genera automáticamente su Historia Clínica inicial.
+5. El sistema registra la nueva mascota en estado **Activa**, quedando disponible a partir de su identificador (`MascotaId`) su Historia Clínica como proyección lógica derivada (sin crear una entidad ni tabla persistida independiente).
 6. El sistema confirma el registro exitoso de la mascota.
 
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
@@ -114,11 +115,11 @@ Este sub-flujo se inicia cuando el usuario selecciona la opción **Cambiar dueñ
 15. El sistema confirma que la reasignación se realizó correctamente.
 
 ### 6. POSTCONDICIONES
-- **Alta:** Se registra la mascota en estado Activa junto con su Historia Clínica inicial, vinculada al dueño indicado (**RN-06**).
-- **Modificación:** Se actualizan los datos biométricos o descriptivos de la mascota. La Historia Clínica no se modifica.
+- **Alta:** Se registra la mascota en estado Activa vinculada al dueño indicado (**RN-06**). La mascota cuenta inmediatamente con una Historia Clínica lógica accesible a través de su propia identidad (`MascotaId`), construida como proyección derivada a partir de sus datos y de las atenciones médicas que reciba (sin generar una entidad ni tabla persistida independiente).
+- **Modificación:** Se actualizan los datos biométricos o descriptivos de la mascota. La Historia Clínica refleja automáticamente los datos actualizados.
 - **Baja lógica (HTTP 200 OK):** La mascota pasa a estado Inactiva, devolviendo confirmación de la operación y su estado actualizado; conserva su Historia Clínica y todos sus registros históricos para consulta (**RN-07**) sin eliminación física, quedando inhabilitada para recibir nuevos turnos o nuevas atenciones médicas.
 - **Reasignación:** La mascota queda asociada al nuevo dueño. La Historia Clínica permanece intacta (**RN-01**, **RN-07**). Se conserva el historial de propietarios con el registro del cambio. Los turnos futuros muestran al nuevo dueño como responsable actual. No se generan nuevas historias clínicas ni se eliminan registros existentes.
-- En ningún caso se realiza la eliminación física del registro de la mascota ni de su Historia Clínica.
+- En ningún caso se realiza la eliminación física del registro de la mascota ni de las atenciones o registros clínicos que componen su Historia Clínica.
 
 ---
 
@@ -128,7 +129,7 @@ Este sub-flujo se inicia cuando el usuario selecciona la opción **Cambiar dueñ
 
 | Código HTTP | Nombre Técnico | Contexto de Aplicación en el Caso de Uso |
 | --- | --- | --- |
-| `201` | Created | Creación exitosa del recurso Mascota y su Historia Clínica vinculada. |
+| `201` | Created | Creación exitosa del recurso Mascota, quedando disponible su Historia Clínica como proyección lógica derivada. |
 | `200` | OK | Retorno exitoso de consulta, actualización, baja lógica exitosa (confirmación y estado Inactiva) o reasignación de la mascota. |
 | `400` | Bad Request | Parámetros inválidos, campos obligatorios ausentes, peso negativo o selección del mismo dueño actual en reasignación. |
 | `404` | Not Found | Dueño o mascota no encontrados en el sistema (RN-06); nuevo dueño no registrado en reasignación. |
@@ -150,7 +151,7 @@ El historial de propietarios es un registro de auditoría de las reasignaciones 
 
 | Paso del CU | Excepción / Código | Test unitario (BusinessLogic) | Test integración (HTTP) |
 | --- | --- | --- | --- |
-| Flujo principal (alta) | `201 Created` | `CreateMascotaAsync_WithValidData_SavesMascotaAndHistoriaClinica` | `CreateMascota_WithValidData_Returns201Created` |
+| Flujo principal (alta) | `201 Created` | `CreateAsync_DatosValidos_RetornaResponseDTO` | `Create_ConDueñoValido_Retorna201Created` |
 | 1a. Datos faltantes o inválidos | `400 Bad Request` | — (validación DataAnnotations) | `CreateMascota_WithMissingNombre_Returns400BadRequest` |
 | 1b. Dueño inexistente | `404 Not Found` | `CreateMascotaAsync_WhenDuenoNotExists_ThrowsDuenoNotFoundException` | `CreateMascota_WhenDuenoNotExists_Returns404NotFound` |
 | Baja lógica exitosa | `200 OK` | `DesactivarMascotaAsync_WithActiveMascota_ChangesStateToInactive` | `DesactivarMascota_WithActiveMascota_Returns200OK` |

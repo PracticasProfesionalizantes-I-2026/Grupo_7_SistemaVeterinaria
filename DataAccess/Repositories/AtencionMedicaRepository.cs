@@ -1,6 +1,7 @@
 using DataAccess.Context;
 using DataAccess.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace DataAccess.Repositories;
 
@@ -151,5 +152,38 @@ public class AtencionMedicaRepository : IAtencionMedicaRepository
             .Where(a => a.Fecha >= desde && a.Fecha <= hasta)
             .OrderByDescending(a => a.Fecha)
             .ToListAsync();
+    }
+
+    public async Task<IDbContextTransaction?> BeginTransactionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_context.Database.CurrentTransaction != null)
+        {
+            return null;
+        }
+
+        return await _context.Database.BeginTransactionAsync(cancellationToken);
+    }
+
+    public async Task CommitTransactionAsync(IDbContextTransaction? transaction, CancellationToken cancellationToken = default)
+    {
+        if (transaction != null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+    }
+
+    public async Task RollbackTransactionAsync(IDbContextTransaction? transaction, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (transaction != null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            _context.ChangeTracker.Clear();
+        }
     }
 }
