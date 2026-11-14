@@ -31,3 +31,10 @@ body:json {
     "observaciones": "Se programa serie de controles quincenales para los próximos 6 meses."
   }
 }
+
+script:post-response {
+  const data = res.getBody();
+  if (data && Array.isArray(data.turnosSeguimiento) && data.turnosSeguimiento.length > 0) {
+    bru.setEnvVar("turnoPendienteId", data.turnosSeguimiento[0].id);
+  }
+}

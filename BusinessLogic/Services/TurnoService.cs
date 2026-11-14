@@ -14,6 +14,7 @@ public class TurnoService : ITurnoService
     [
         "Pendiente",
         "Confirmado",
+        "EnAtencion",
         "Finalizado",
         "Cancelado"
     ];
@@ -22,17 +23,20 @@ public class TurnoService : ITurnoService
     private readonly IDisponibilidadVeterinarioRepository _disponibilidadRepository;
     private readonly IMascotaRepository _mascotaRepository;
     private readonly IUsuarioRepository _usuarioRepository;
+    private readonly IAtencionMedicaRepository? _atencionMedicaRepository;
 
     public TurnoService(
         ITurnoRepository turnoRepository,
         IDisponibilidadVeterinarioRepository disponibilidadRepository,
         IMascotaRepository mascotaRepository,
-        IUsuarioRepository usuarioRepository)
+        IUsuarioRepository usuarioRepository,
+        IAtencionMedicaRepository? atencionMedicaRepository = null)
     {
         _turnoRepository = turnoRepository;
         _disponibilidadRepository = disponibilidadRepository;
         _mascotaRepository = mascotaRepository;
         _usuarioRepository = usuarioRepository;
+        _atencionMedicaRepository = atencionMedicaRepository;
     }
 
     public async Task<TurnoResponseDTO> GetByIdAsync(Guid id)
@@ -62,7 +66,7 @@ public class TurnoService : ITurnoService
 
             if (estadoNormalizado == null)
             {
-                throw new ValidationException("El estado filtrado no es válido. Los valores permitidos son: Pendiente, Confirmado, Finalizado, Cancelado.");
+                throw new ValidationException("El estado filtrado no es válido. Los valores permitidos son: Pendiente, Confirmado, EnAtencion, Finalizado, Cancelado.");
             }
         }
 
@@ -104,8 +108,11 @@ public class TurnoService : ITurnoService
         return turnos.Select(MapToResponseDTO).ToList();
     }
 
-    public async Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto)
+    public async Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto, Guid usuarioId = default, string rolUsuario = "")
     {
+        // 0. Validar autorización horizontal cuando opera un Veterinario
+        ValidarAutorizacionOperacionTurno(dto.VeterinarioId, usuarioId, rolUsuario);
+
         // 1. Validar Mascota existente y activa
         var mascota = await _mascotaRepository.GetByIdAsync(dto.MascotaId);
         if (mascota == null)
@@ -172,7 +179,7 @@ public class TurnoService : ITurnoService
         }
     }
 
-    public async Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto)
+    public async Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto, Guid usuarioId = default, string rolUsuario = "")
     {
         var turno = await _turnoRepository.GetByIdTrackedAsync(id);
         if (turno == null)
@@ -188,6 +195,15 @@ public class TurnoService : ITurnoService
             // que cualquier cambio persistido por otra operación concurrente se refleje efectivamente
             // aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
             await _turnoRepository.ReloadAsync(turno);
+
+            ValidarAutorizacionModificacionTurno(turno, dto, usuarioId, rolUsuario);
+
+            targetVetId = dto.VeterinarioId ?? turno.VeterinarioId;
+
+            if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new TurnoEnAtencionException(id);
+            }
 
             // RN-09: No modificar turno finalizado
             if (turno.Estado == "Finalizado")
@@ -259,7 +275,7 @@ public class TurnoService : ITurnoService
         }
     }
 
-    public async Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username)
+    public async Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username, string rolUsuario = "")
     {
         // 1. Obtener la entidad para determinar el profesional y validar existencia inicial
         var turno = await _turnoRepository.GetByIdTrackedAsync(id);
@@ -274,6 +290,8 @@ public class TurnoService : ITurnoService
             // garantizando que cualquier cambio persistido por otra operación concurrente
             // se refleje efectivamente aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
             await _turnoRepository.ReloadAsync(turno);
+
+            ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
 
             // 3. Comprobar que esté en estado Pendiente
             if (!string.Equals(turno.Estado, "Pendiente", StringComparison.OrdinalIgnoreCase))
@@ -323,9 +341,9 @@ public class TurnoService : ITurnoService
         }
     }
 
-    public async Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username)
+    public async Task<TurnoResponseDTO> IniciarAtencionAsync(Guid id, Guid usuarioId, string username = "")
     {
-        // 1. Obtener la entidad para determinar el profesional y validar existencia inicial
+        // 1. Verificar que el turno exista
         var turno = await _turnoRepository.GetByIdTrackedAsync(id);
         if (turno == null)
         {
@@ -334,17 +352,28 @@ public class TurnoService : ITurnoService
 
         using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
         {
-            // 2. Recargar estado real desde la base de datos dentro de la sección protegida
+            // Recargar estado real desde la base de datos dentro de la sección protegida
             await _turnoRepository.ReloadAsync(turno);
 
-            // 3. Regla funcional: Permitir únicamente la transición Confirmado -> Finalizado
+            // 2. Verificar que esté en estado Confirmado
             if (!string.Equals(turno.Estado, "Confirmado", StringComparison.OrdinalIgnoreCase))
             {
                 throw new TurnoNoConfirmadoException(id, turno.Estado);
             }
 
-            // 4. Cambiar el estado a Finalizado
-            turno.Estado = "Finalizado";
+            // 3. Comprobar que el usuario autenticado corresponde al veterinario asignado y está habilitado
+            await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
+
+            // Validar que la mascota se encuentre activa si está disponible
+            var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
+            if (mascota != null && !mascota.Activa)
+            {
+                throw new MascotaInactivaException(mascota.Id);
+            }
+
+            // 4. Cambiar el estado a EnAtencion y registrar FechaHoraInicioAtencion en UTC
+            turno.Estado = "EnAtencion";
+            turno.FechaHoraInicioAtencion = DateTime.UtcNow;
 
             await _turnoRepository.UpdateAsync(turno);
 
@@ -353,7 +382,53 @@ public class TurnoService : ITurnoService
         }
     }
 
-    public async Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username)
+    public async Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username = "")
+    {
+        // 1. Verificar que el turno exista
+        var turno = await _turnoRepository.GetByIdTrackedAsync(id);
+        if (turno == null)
+        {
+            throw new TurnoNotFoundException(id);
+        }
+
+        using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
+        {
+            // Recargar estado real desde la base de datos dentro de la sección protegida
+            await _turnoRepository.ReloadAsync(turno);
+
+            // 2. Exigir estado EnAtencion
+            if (!string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new TurnoNoEnAtencionException(id, turno.Estado);
+            }
+
+            // 3. Verificar que el usuario autenticado sea el veterinario asignado y esté habilitado
+            await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
+
+            // 4. Comprobar que exista una atención médica vinculada a este turno
+            if (_atencionMedicaRepository == null || !await _atencionMedicaRepository.ExistsByTurnoIdAsync(id))
+            {
+                throw new TurnoSinAtencionMedicaException(id);
+            }
+
+            // 5. Cambiar el estado a Finalizado y registrar FechaHoraFinAtencion en UTC (no anterior al inicio)
+            var fechaFinUtc = DateTime.UtcNow;
+            if (turno.FechaHoraInicioAtencion.HasValue && fechaFinUtc < turno.FechaHoraInicioAtencion.Value)
+            {
+                fechaFinUtc = turno.FechaHoraInicioAtencion.Value;
+            }
+
+            turno.Estado = "Finalizado";
+            turno.FechaHoraFinAtencion = fechaFinUtc;
+
+            await _turnoRepository.UpdateAsync(turno);
+
+            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+            return MapToResponseDTO(turnoActualizado ?? turno);
+        }
+    }
+
+    public async Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username, string rolUsuario = "")
     {
         if (string.IsNullOrWhiteSpace(dto.MotivoCancelacion))
         {
@@ -370,6 +445,13 @@ public class TurnoService : ITurnoService
         {
             // Recargar estado real desde la base de datos dentro del semáforo
             await _turnoRepository.ReloadAsync(turno);
+
+            ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
+
+            if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new TurnoEnAtencionException(id);
+            }
 
             // RN-09: No cancelar turno finalizado
             if (turno.Estado == "Finalizado")
@@ -753,6 +835,60 @@ public class TurnoService : ITurnoService
         return horario.Ticks % TicksBloque30Minutos == 0;
     }
 
+    private static void ValidarAutorizacionOperacionTurno(Guid veterinarioTurnoId, Guid usuarioId, string rolUsuario, Guid turnoId = default)
+    {
+        if (string.IsNullOrWhiteSpace(rolUsuario))
+        {
+            return;
+        }
+
+        var rol = rolUsuario.Trim();
+        if (string.Equals(rol, "Recepcionista", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (string.Equals(rol, "Veterinario", StringComparison.OrdinalIgnoreCase))
+        {
+            if (usuarioId == Guid.Empty || veterinarioTurnoId != usuarioId)
+            {
+                throw new TurnoVeterinarioNoAutorizadoException(turnoId, usuarioId);
+            }
+
+            return;
+        }
+
+        throw new TurnoVeterinarioNoAutorizadoException(turnoId, usuarioId);
+    }
+
+    private static void ValidarAutorizacionModificacionTurno(Turno turno, TurnoUpdateDTO dto, Guid usuarioId, string rolUsuario)
+    {
+        ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
+
+        if (!string.IsNullOrWhiteSpace(rolUsuario) &&
+            string.Equals(rolUsuario.Trim(), "Veterinario", StringComparison.OrdinalIgnoreCase))
+        {
+            if (dto.VeterinarioId.HasValue && dto.VeterinarioId.Value != usuarioId)
+            {
+                throw new TurnoVeterinarioNoAutorizadoException("Un veterinario únicamente puede modificar turnos propios y no puede reasignarlos a otro profesional.");
+            }
+        }
+    }
+
+    private async Task ValidarVeterinarioAsignadoAsync(Turno turno, Guid usuarioId)
+    {
+        if (usuarioId == Guid.Empty || turno.VeterinarioId != usuarioId)
+        {
+            throw new TurnoVeterinarioNoAutorizadoException(turno.Id, usuarioId);
+        }
+
+        var usuario = await _usuarioRepository.GetByIdAsync(usuarioId) ?? turno.Veterinario;
+        if (usuario == null || !usuario.Activo || !string.Equals(usuario.Rol, "Veterinario", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new TurnoVeterinarioNoAutorizadoException(turno.Id, usuarioId);
+        }
+    }
+
     private static TurnoResponseDTO MapToResponseDTO(Turno turno)
     {
         var duenoNombreCompleto = string.Empty;
@@ -779,6 +915,8 @@ public class TurnoService : ITurnoService
             MotivoCancelacion = turno.MotivoCancelacion,
             FechaCancelacion = turno.FechaCancelacion,
             UsuarioCancelacionUsername = turno.UsuarioCancelacionUsername,
+            FechaHoraInicioAtencion = turno.FechaHoraInicioAtencion,
+            FechaHoraFinAtencion = turno.FechaHoraFinAtencion,
             FechaCreacion = turno.FechaCreacion
         };
     }

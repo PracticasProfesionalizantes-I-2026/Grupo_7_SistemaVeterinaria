@@ -18,5 +18,7 @@ public class TurnoResponseDTO
     public string? MotivoCancelacion { get; set; }
     public DateTime? FechaCancelacion { get; set; }
     public string? UsuarioCancelacionUsername { get; set; }
+    public DateTime? FechaHoraInicioAtencion { get; set; }
+    public DateTime? FechaHoraFinAtencion { get; set; }
     public DateTime FechaCreacion { get; set; }
 }

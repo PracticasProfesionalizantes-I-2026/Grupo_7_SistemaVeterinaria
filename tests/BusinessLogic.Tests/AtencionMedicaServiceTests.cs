@@ -17,6 +17,8 @@ public class AtencionMedicaServiceTests
     private readonly Mock<IAtencionMedicaRepository> _atencionRepoMock;
     private readonly Mock<IMascotaRepository> _mascotaRepoMock;
     private readonly Mock<ITurnoService> _turnoServiceMock;
+    private readonly Mock<ITurnoRepository> _turnoRepoMock;
+    private readonly Mock<IUsuarioRepository> _usuarioRepoMock;
     private readonly AtencionMedicaService _service;
 
     public AtencionMedicaServiceTests()
@@ -24,9 +26,16 @@ public class AtencionMedicaServiceTests
         _atencionRepoMock = new Mock<IAtencionMedicaRepository>();
         _mascotaRepoMock = new Mock<IMascotaRepository>();
         _turnoServiceMock = new Mock<ITurnoService>();
+        _turnoRepoMock = new Mock<ITurnoRepository>();
+        _usuarioRepoMock = new Mock<IUsuarioRepository>();
         _turnoServiceMock.Setup(t => t.GetDisponibilidadVeterinarioAsync(It.IsAny<Guid>()))
                          .ReturnsAsync(new List<DisponibilidadVeterinarioDTO> { new DisponibilidadVeterinarioDTO() });
-        _service = new AtencionMedicaService(_atencionRepoMock.Object, _mascotaRepoMock.Object, _turnoServiceMock.Object);
+        _service = new AtencionMedicaService(
+            _atencionRepoMock.Object,
+            _mascotaRepoMock.Object,
+            _turnoServiceMock.Object,
+            _turnoRepoMock.Object,
+            _usuarioRepoMock.Object);
     }
 
     [Fact]
@@ -1449,5 +1458,367 @@ public class AtencionMedicaServiceTests
         Assert.Single(result.TurnosSeguimiento);
         _turnoServiceMock.Verify(t => t.GenerarTurnosSeguimientoCronicoAsync(It.Is<GenerarTurnosCronicosDTO>(g =>
             g.Frecuencia == "Mensual" && g.JornadaPreferida == "Tarde")), Times.Once);
+    }
+
+    // --- VINCULACIÓN OPCIONAL CON TURNO EN ATENCIÓN (ETAPA 3) ---
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoEnAtencionValido_RegistraAtencionVinculadaYRetornaTurnoId()
+    {
+        // Arrange
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true, Peso = 12m };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            Estado = "EnAtencion",
+            FechaHora = DateTime.UtcNow,
+            FechaHoraInicioAtencion = DateTime.UtcNow.AddMinutes(-5),
+            Mascota = mascota,
+            Veterinario = vet
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+        _atencionRepoMock.Setup(r => r.ExistsByTurnoIdAsync(turnoId)).ReturnsAsync(false);
+
+        AtencionMedica? atencionPersistida = null;
+        _atencionRepoMock.Setup(r => r.CreateAsync(It.IsAny<AtencionMedica>()))
+            .Callback<AtencionMedica>(a => atencionPersistida = a)
+            .ReturnsAsync((AtencionMedica a) => { a.Id = Guid.NewGuid(); return a; });
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control programado",
+            Anamnesis = "Paciente activo",
+            ExamenFisico = "Parámetros normales",
+            Diagnostico = "Sano",
+            Tratamiento = "Control",
+            PesoRegistrado = 12.2m
+        };
+
+        // Act
+        var result = await _service.CreateAsync(dto, vetId, "vet.carlos");
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(turnoId, result.TurnoId);
+        Assert.NotNull(atencionPersistida);
+        Assert.Equal(turnoId, atencionPersistida!.TurnoId);
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.Is<AtencionMedica>(a => a.TurnoId == turnoId)), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoInexistente_LanzaTurnoNotFoundException()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(new Mascota { Id = mascotaId, Activa = true, Peso = 10m });
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync((Turno?)null);
+        _turnoRepoMock.Setup(r => r.GetByIdAsync(turnoId)).ReturnsAsync((Turno?)null);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 10m
+        };
+
+        await Assert.ThrowsAsync<TurnoNotFoundException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Pendiente")]
+    [InlineData("Confirmado")]
+    [InlineData("Finalizado")]
+    [InlineData("Cancelado")]
+    public async Task CreateAsync_ConTurnoNoEnAtencion_LanzaTurnoNoEnAtencionException(string estadoInvalido)
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Activa = true, Peso = 10m };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            Estado = estadoInvalido
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 10m
+        };
+
+        await Assert.ThrowsAsync<TurnoNoEnAtencionException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoDeOtraMascota_LanzaTurnoMascotaNoCoincideException()
+    {
+        var mascotaAtencionId = Guid.NewGuid();
+        var otraMascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaAtencionId, Activa = true, Peso = 10m };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = otraMascotaId,
+            VeterinarioId = vetId,
+            Estado = "EnAtencion"
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaAtencionId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaAtencionId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 10m
+        };
+
+        await Assert.ThrowsAsync<TurnoMascotaNoCoincideException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoDeOtroVeterinario_LanzaTurnoVeterinarioNoAutorizadoException()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetTurnoId = Guid.NewGuid();
+        var otroVetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Activa = true, Peso = 10m };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetTurnoId,
+            Estado = "EnAtencion"
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 10m
+        };
+
+        await Assert.ThrowsAsync<TurnoVeterinarioNoAutorizadoException>(() => _service.CreateAsync(dto, otroVetId, "vet.otro"));
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoQueYaTieneAtencionVinculada_LanzaTurnoYaTieneAtencionException()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Activa = true, Peso = 10m };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            Estado = "EnAtencion",
+            Veterinario = vet
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+        _atencionRepoMock.Setup(r => r.ExistsByTurnoIdAsync(turnoId)).ReturnsAsync(true);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 10m
+        };
+
+        await Assert.ThrowsAsync<TurnoYaTieneAtencionException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConTurnoEnAtencionYFalloEnSeguimientoCronico_RevierteTransaccionYSinAtencionPersistida()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true, Peso = 12m };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            Estado = "EnAtencion",
+            Veterinario = vet
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+        _atencionRepoMock.Setup(r => r.ExistsByTurnoIdAsync(turnoId)).ReturnsAsync(false);
+        _atencionRepoMock.Setup(r => r.CreateAsync(It.IsAny<AtencionMedica>()))
+                         .ReturnsAsync((AtencionMedica a) => { a.Id = Guid.NewGuid(); return a; });
+        _atencionRepoMock.Setup(r => r.HasTurnosSeguimientoAsync(It.IsAny<Guid>())).ReturnsAsync(false);
+
+        _turnoServiceMock.Setup(t => t.GenerarTurnosSeguimientoCronicoAsync(It.IsAny<GenerarTurnosCronicosDTO>()))
+                         .ThrowsAsync(new InvalidOperationException("Fallo simulado al generar turnos de seguimiento crónico"));
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control crónico",
+            Anamnesis = "Control",
+            ExamenFisico = "Normal",
+            Diagnostico = "Crónico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 12m,
+            EsEnfermedadCronica = true,
+            SeguimientoCronico = new SeguimientoCronicoCreateDTO
+            {
+                Frecuencia = "Mensual",
+                JornadaPreferida = "Manana"
+            }
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        _atencionRepoMock.Verify(r => r.RollbackTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Once);
+        _atencionRepoMock.Verify(r => r.CommitTransactionAsync(It.IsAny<IDbContextTransaction>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DosSolicitudesSimultaneasMismoTurnoId_UnaSolaTieneExitoYLaOtraLanzaTurnoYaTieneAtencionException()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var turnoId = Guid.NewGuid();
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true, Peso = 12m };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            Estado = "EnAtencion",
+            Veterinario = vet
+        };
+
+        var atencionRegistrada = false;
+        var lockObj = new object();
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock.Setup(r => r.ReloadAsync(turno)).Returns(Task.CompletedTask);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        _atencionRepoMock.Setup(r => r.ExistsByTurnoIdAsync(turnoId))
+            .ReturnsAsync(() =>
+            {
+                lock (lockObj)
+                {
+                    return atencionRegistrada;
+                }
+            });
+
+        _atencionRepoMock.Setup(r => r.CreateAsync(It.IsAny<AtencionMedica>()))
+            .ReturnsAsync((AtencionMedica a) =>
+            {
+                lock (lockObj)
+                {
+                    atencionRegistrada = true;
+                }
+                a.Id = Guid.NewGuid();
+                return a;
+            });
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control concurrente",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 12m
+        };
+
+        var task1 = Task.Run(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+        var task2 = Task.Run(() => _service.CreateAsync(dto, vetId, "vet.carlos"));
+
+        var resultados = await Task.WhenAll(
+            task1.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException)),
+            task2.ContinueWith(t => (Exitoso: t.IsCompletedSuccessfully, Exception: t.Exception?.InnerException))
+        );
+
+        var exitosos = resultados.Count(r => r.Exitoso);
+        var conflictos = resultados.Count(r => r.Exception is TurnoYaTieneAtencionException);
+
+        Assert.Equal(1, exitosos);
+        Assert.Equal(1, conflictos);
+        _atencionRepoMock.Verify(r => r.CreateAsync(It.IsAny<AtencionMedica>()), Times.Once);
     }
 }

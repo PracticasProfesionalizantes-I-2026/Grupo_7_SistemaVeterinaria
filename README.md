@@ -85,8 +85,8 @@ Grupo_7_SistemaVeterinaria/
 │   ├── Exceptions/                      # Jerarquía de excepciones tipadas (400, 401, 403, 404, 409)
 │   └── Shared.csproj
 ├── tests/
-│   ├── BusinessLogic.Tests/             # 314 Tests Unitarios (xUnit + Moq)
-│   └── API.Tests/                       # 225 Tests de Integración (WebApplicationFactory + SQLite en memoria)
+│   ├── BusinessLogic.Tests/             # 376 Tests Unitarios (xUnit + Moq)
+│   └── API.Tests/                       # 264 Tests de Integración (WebApplicationFactory + SQLite en memoria)
 ├── bruno/                               # Colección completa de requests HTTP para Bruno con scripts dinámicos
 ├── SistemaVeterinaria.slnx              # Solución .NET 10
 ├── README.md                            # Documentación general de ejecución y entrega
@@ -131,9 +131,9 @@ En entorno `Development`, la API expone su especificación OpenAPI nativa genera
 ```bash
 dotnet test SistemaVeterinaria.slnx
 ```
-La solución cuenta con un total de **539 pruebas automatizadas** que se ejecutan sin dependencias externas:
-* **314 pruebas unitarias:** En `tests/BusinessLogic.Tests/BusinessLogic.Tests.csproj` (xUnit + Moq), validando exhaustivamente todas las reglas clínicas y de agenda.
-* **225 pruebas de integración:** En `tests/API.Tests/API.Tests.csproj` (`WebApplicationFactory` y SQLite en memoria), cubriendo flujos HTTP completos, autenticación, autorización por roles y códigos de respuesta.
+La solución cuenta con un total de **640 pruebas automatizadas** que se ejecutan sin dependencias externas:
+* **376 pruebas unitarias:** En `tests/BusinessLogic.Tests/BusinessLogic.Tests.csproj` (xUnit + Moq), validando exhaustivamente todas las reglas clínicas y de agenda.
+* **264 pruebas de integración:** En `tests/API.Tests/API.Tests.csproj` (`WebApplicationFactory` y SQLite en memoria), cubriendo flujos HTTP completos, autenticación, autorización por roles y códigos de respuesta.
 
 ---
 
@@ -162,11 +162,11 @@ Para fines exclusivamente académicos y de verificación local, `DbInitializer` 
 | **RN-06** | Asociación Obligatoria de Mascota a Dueño | **404 Not Found** | Toda mascota requiere un `DuenoId` válido y existente (`DuenoNotFoundException`). |
 | **RN-07 / MEJ-03** | Baja Lógica y Preservación Histórica | **200 OK / 409 Conflict** | La baja de una mascota es lógica (`Activa = false`). Si la mascota ya estaba inactiva, se rechaza con **409 Conflict** (`MascotaYaInactivaException`). Si estaba activa, devuelve **200 OK**. |
 | **RN-07 (Clínica)** | Restricción de Atención en Inactivas | **409 Conflict** | Una mascota inactiva no puede recibir nuevas atenciones médicas ni turnos (`MascotaInactivaException`). |
-| **RN-08** | No Superposición de Turnos | **409 Conflict** | No se pueden agendar turnos superpuestos para un mismo veterinario (`HorarioNoDisponibleException`). La cancelación libera el horario de inmediato. |
-| **RN-09** | Protección de Turno Finalizado o Cancelado | **409 Conflict** | Un turno en estado `Finalizado` o `Cancelado` no puede ser reprogramado ni cancelado nuevamente (`TurnoFinalizadoException`, `TurnoYaCanceladoException`). |
+| **RN-08** | No Superposición de Turnos | **409 Conflict** | No se pueden agendar turnos superpuestos para un mismo veterinario (`HorarioNoDisponibleException`). Los estados `Confirmado`, `EnAtencion` y `Finalizado` ocupan horario; la cancelación libera el horario de inmediato. |
+| **RN-09** | Máquina de Estados `EnAtencion`, Vinculación Clínica y Protección de Turnos | **403 / 409** | Secuencia `Pendiente → Confirmado → EnAtencion → Finalizado` (cancelable desde `Pendiente` o `Confirmado`). Solo el veterinario asignado puede iniciar (`FechaHoraInicioAtencion` UTC) y finalizar (`FechaHoraFinAtencion` UTC) el turno (`403 Forbidden`). Para finalizar se exige una atención médica vinculada (`AtencionMedica.TurnoId`, relación opcional `1:1`, máx. 1 por turno) o se permite registrar atenciones espontáneas (`TurnoId = null`). Un turno en `EnAtencion`, `Finalizado` o `Cancelado` no puede reprogramarse ni cancelarse (`TurnoEnAtencionException`, `TurnoFinalizadoException`, `TurnoYaCanceladoException`). |
 | **RN-10** | Disponibilidad Horaria Profesional | **409 Conflict** | Los turnos solo pueden agendarse dentro de las franjas semanales activas configuradas por el veterinario (`HorarioNoDisponibleException`). |
-| **RN-11 / BUG-06** | Coherencia en Seguimiento Crónico | **400 Bad Request** | Si `EsEnfermedadCronica` es `true`, debe enviarse el bloque de `SeguimientoCronico`; si es `false`, dicho bloque no debe remitirse. |
-| **RN-12** | Alerta Automática de Pérdida de Peso | **201 Created** | Si el peso disminuye $\ge$ 15% respecto a la consulta anterior, se emite una alerta médica dentro de `mensajeAlertaDesnutricion`. |
+| **RN-11 / BUG-06** | Seguimiento Crónico y Atomicidad Transaccional | **400 / 201** | Si `EsEnfermedadCronica` es `true`, debe enviarse `SeguimientoCronico`; genera la serie de turnos futuros vinculados mediante `Turno.AtencionMedicaId` (`1:N`) dentro de la misma transacción de EF Core. |
+| **RN-12** | Alerta Automática de Pérdida de Peso | **201 Created** | Si el peso disminuye $>$ 10% respecto a la consulta anterior (o ficha inicial), se activa `alertaDesnutricion` y se informa `mensajeAlertaDesnutricion`. |
 | **Bloques de 30 min** | Alineación Horaria Obligatoria | **400 Bad Request** | Los turnos y las franjas de disponibilidad deben estar alineados a bloques exactos de 30 minutos (`:00` o `:30`). |
 | **DeleteBehavior.Restrict** | Protección de Integridad Referencial | **409 Conflict** | No se permite eliminar un dueño si tiene mascotas asociadas (`DuenoConMascotasException`). |
 | **Fecha Última Visita** | Actualización Automática | **201 Created** | Al registrar con éxito una atención médica, se actualiza automáticamente la fecha de última visita de la mascota. |
@@ -211,17 +211,17 @@ Para ejecutar la colección completa sin dependencias rotas, se debe respetar el
 3. **`mascotas/` (Pacientes):**
    * Ejecutar `mascotas/1` para capturar `{{mascotaId}}`, `{{mascotaDuenoId}}`, `{{mascotaSinAtencionesId}}` y `{{mascotaInactivaId}}`.
    * Ejecutar las pruebas de creación, baja lógica y reasignación de dueño.
-4. **`turnos/` (Agenda y Disponibilidad):**
+4. **`turnos/` (Agenda, Disponibilidad y Ciclo `EnAtencion`):**
    * **Paso previo obligatorio:** Ejecutar `turnos/0. Preparar - Configurar Disponibilidad Semanal (200 OK)` para establecer el horario laboral del veterinario antes de solicitar turnos (RN-10).
-   * Ejecutar `turnos/3` para agendar un turno válido a futuro (calculado automáticamente en el pre-request) y guardar `{{turnoId}}`.
-   * Ejecutar las pruebas de superposición horaria (`turnos/8`), reprogramación (`turnos/9`) y cancelación (`turnos/11`).
+   * Ejecutar `turnos/3` para agendar un turno válido a futuro y guardar `{{turnoId}}`, o ejecutar el ciclo completo de consulta: confirmar turno (`POST /api/turnos/{id}/confirmar`), iniciar atención (`POST /api/turnos/{id}/iniciar-atencion`), registrar la atención médica vinculada (`POST /api/atenciones-medicas` con `turnoId`) y finalizar turno (`POST /api/turnos/{id}/finalizar`).
+   * Ejecutar las pruebas de superposición horaria (`turnos/8`), reprogramación (`turnos/9`), cancelación (`turnos/11`), intento de finalizar sin atención médica (`409 Conflict`) e intento de iniciar/finalizar sin autorización (`403 Forbidden`).
 5. **`atenciones-medicas/` e `historia-clinica/` (Atención Clínica):**
    * Ejecutar `atenciones-medicas/0` para registrar la mascota de control de peso y almacenar `{{mascotaAlertaId}}`.
-   * Ejecutar el registro de atenciones incluyendo obligatoriamente `anamnesis` y `examenFisico` (BUG-03).
+   * Ejecutar el registro de atenciones espontáneas (`turnoId: null`) y de atenciones médicas vinculadas a un turno en estado `EnAtencion` (`turnoId`), incluyendo obligatoriamente `anamnesis` y `examenFisico` (BUG-03).
    * Probar la detección automática de pérdida de peso en `atenciones-medicas/10`.
 6. **`usuarios/` y `reportes/` (Administración):**
    * Ejecutar con `{{tokenAdministrador}}` para auditoría de usuarios y generación de reportes con rangos de fechas válidos.
 
 > [!NOTE]
-> **Limitación de Escenario para Turno Finalizado (`turnos/10`):**
-> La solicitud `turnos/10. Reprogramar Turno - Turno Finalizado (409 Conflict - RN-09)` requiere que el turno se encuentre en estado `Finalizado`. En el modelo de negocio, un turno solo adquiere dicho estado cuando se completa una atención médica asociada; la API no provee un endpoint manual para forzar el estado a `Finalizado`. Si se ejecuta sin configurar manualmente un turno previamente atendido en la variable `{{turnoFinalizadoId}}`, el endpoint devolverá `404 Not Found`.
+> **Ciclo Operativo para Finalizar un Turno (`RN-09`):**
+> En el modelo de negocio vigente (`Pendiente → Confirmado → EnAtencion → Finalizado`), un turno requiere ser confirmado (`POST /api/turnos/{id}/confirmar`), iniciado por el veterinario asignado (`POST /api/turnos/{id}/iniciar-atencion`), contar con su atención médica vinculada registrada (`POST /api/atenciones-medicas` con `turnoId`) y finalmente ser finalizado por el veterinario asignado (`POST /api/turnos/{id}/finalizar`). Al ejecutarse la finalización exitosa en Bruno, se almacena `{{turnoFinalizadoId}}` para verificar la protección de inmutabilidad en `turnos/10`.

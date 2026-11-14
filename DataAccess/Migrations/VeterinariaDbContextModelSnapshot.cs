@@ -102,6 +102,9 @@ namespace DataAccess.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("TurnoId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("VacunaAplicada")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
@@ -123,6 +126,9 @@ namespace DataAccess.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("MascotaId");
+
+                    b.HasIndex("TurnoId")
+                        .IsUnique();
 
                     b.HasIndex("VeterinarioId");
 
@@ -555,6 +561,12 @@ namespace DataAccess.Migrations
                     b.Property<DateTime>("FechaHora")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("FechaHoraFinAtencion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FechaHoraInicioAtencion")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("MascotaId")
                         .HasColumnType("TEXT");
 
@@ -664,12 +676,19 @@ namespace DataAccess.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("DataAccess.Entities.Turno", "Turno")
+                        .WithOne()
+                        .HasForeignKey("DataAccess.Entities.AtencionMedica", "TurnoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("DataAccess.Entities.Usuario", "Veterinario")
                         .WithMany()
                         .HasForeignKey("VeterinarioId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Mascota");
+
+                    b.Navigation("Turno");
 
                     b.Navigation("Veterinario");
                 });

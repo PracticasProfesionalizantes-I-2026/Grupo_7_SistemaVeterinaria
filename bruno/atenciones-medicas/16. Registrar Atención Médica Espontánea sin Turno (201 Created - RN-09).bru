@@ -1,0 +1,38 @@
+meta {
+  name: 16. Registrar Atención Médica Espontánea sin Turno (201 Created - RN-09)
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones-medicas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+
+body:json {
+  {
+    "mascotaId": "{{mascotaId}}",
+    "turnoId": null,
+    "motivoConsulta": "Consulta espontánea de guardia sin turno previo",
+    "anamnesis": "El propietario refiere decaimiento leve desde la mañana.",
+    "examenFisico": "Temperatura 38.6°C, palpación abdominal sin dolor, auscultación normal.",
+    "diagnostico": "Indigestión leve transitoria",
+    "tratamiento": "Dieta blanda por 48 horas y control evolutivo",
+    "pesoRegistrado": 28.5,
+    "esAptoVacunacion": false,
+    "observaciones": "Atención médica espontánea registrada con turnoId nulo."
+  }
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("atencionId", data.id);
+  }
+}
+

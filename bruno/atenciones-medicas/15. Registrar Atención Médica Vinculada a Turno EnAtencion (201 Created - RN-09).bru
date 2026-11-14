@@ -1,0 +1,38 @@
+meta {
+  name: 15. Registrar Atención Médica Vinculada a Turno EnAtencion (201 Created - RN-09)
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/atenciones-medicas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+
+body:json {
+  {
+    "mascotaId": "{{mascotaId}}",
+    "turnoId": "{{turnoEnAtencionId}}",
+    "motivoConsulta": "Consulta clínica correspondiente a turno en atención",
+    "anamnesis": "Paciente acude a su turno programado con buen estado general.",
+    "examenFisico": "Parámetros vitales normales, mucosas rosadas, hidratación adecuada.",
+    "diagnostico": "Control clínico satisfactorio",
+    "tratamiento": "Continuar pauta preventiva habitual",
+    "pesoRegistrado": 28.5,
+    "esAptoVacunacion": false,
+    "observaciones": "Atención médica vinculada 1:1 al turno en estado EnAtencion."
+  }
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("atencionId", data.id);
+  }
+}
+

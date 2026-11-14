@@ -1,0 +1,23 @@
+meta {
+  name: 19. Iniciar Atencion de Turno Confirmado (200 OK - RN-09)
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/api/turnos/{{turnoId}}/iniciar-atencion
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("turnoEnAtencionId", data.id);
+  }
+}
+

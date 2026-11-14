@@ -1381,15 +1381,448 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         }
     }
 
+    // =========================================================================
+    // ETAPA 4: Pruebas de integración HTTP para vinculación TurnoId y atenciones espontáneas
+    // =========================================================================
+
+    private async Task<Usuario> EnsureSecondVeterinarioAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+        var vetLaura = await db.Usuarios.FirstOrDefaultAsync(u => u.Username == "vet.laura");
+        if (vetLaura == null)
+        {
+            vetLaura = new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = "vet.laura",
+                Email = "laura.veterinaria@patitas.com",
+                PasswordHash = Shared.Security.PasswordHelper.HashPassword("VetLaura1234!"),
+                Rol = "Veterinario",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0,
+                RequiereCambioPassword = false,
+                FechaCreacion = DateTime.UtcNow
+            };
+            db.Usuarios.Add(vetLaura);
+            await db.SaveChangesAsync();
+        }
+        return vetLaura;
+    }
+
+    private async Task AutenticarComoAsync(string username, string password)
+    {
+        _client.DefaultRequestHeaders.Authorization = null;
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequestDTO
+        {
+            UsuarioOEmail = username,
+            Password = password
+        });
+        response.EnsureSuccessStatusCode();
+        var authData = await response.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(authData);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authData.Token);
+    }
+
+    [Fact]
+    public async Task Create_ConTurnoEnAtencionVinculadoCorrectamente_Retorna201CreatedYPersisteTurnoId()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+
+        Guid vetCarlosId;
+        Guid mascotaId;
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vet = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            var mascota = await db.Mascotas.FirstAsync(m => m.Nombre == "Milo" && m.Activa);
+            vetCarlosId = vet.Id;
+            mascotaId = mascota.Id;
+
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascotaId,
+                VeterinarioId = vetCarlosId,
+                FechaHora = DateTime.UtcNow.AddDays(3).Date.AddHours(10),
+                MotivoConsulta = "Control clínico vinculado",
+                Estado = "EnAtencion",
+                FechaHoraInicioAtencion = DateTime.UtcNow.AddMinutes(-10)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Control clínico vinculado",
+            Anamnesis = "Paciente activo y alerta",
+            ExamenFisico = "Constantes normales",
+            Diagnostico = "Clínicamente sano",
+            Tratamiento = "Control anual",
+            PesoRegistrado = 28.5m
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.Equal(turnoId, creada.TurnoId);
+        Assert.Equal(mascotaId, creada.MascotaId);
+        Assert.Equal(vetCarlosId, creada.VeterinarioId);
+
+        // Verificar persistencia real en BD
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var persistida = await dbVerif.AtencionesMedicas.AsNoTracking().FirstOrDefaultAsync(a => a.Id == creada.Id);
+            Assert.NotNull(persistida);
+            Assert.Equal(turnoId, persistida.TurnoId);
+        }
+    }
+
+    [Fact]
+    public async Task Create_ConTurnoIdDeOtraMascota_Retorna409Conflict_SinPersistirAtencion()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+
+        Guid vetCarlosId;
+        Guid mascotaTurnoId;
+        Guid otraMascotaId;
+        var turnoId = Guid.NewGuid();
+        int totalAntes;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vet = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            var mascotasActivas = await db.Mascotas.Where(m => m.Activa).Take(2).ToListAsync();
+            vetCarlosId = vet.Id;
+            mascotaTurnoId = mascotasActivas[0].Id;
+            otraMascotaId = mascotasActivas[1].Id;
+
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascotaTurnoId,
+                VeterinarioId = vetCarlosId,
+                FechaHora = DateTime.UtcNow.AddDays(4).Date.AddHours(10),
+                MotivoConsulta = "Turno de Mascota A",
+                Estado = "EnAtencion",
+                FechaHoraInicioAtencion = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await db.SaveChangesAsync();
+            totalAntes = await db.AtencionesMedicas.CountAsync();
+        }
+
+        // Act: Enviar DTO con otraMascotaId pero apuntando al turno de mascotaTurnoId
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = otraMascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Intento con mascota distinta",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 12.0m
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            Assert.Equal(totalAntes, await dbVerif.AtencionesMedicas.CountAsync());
+            Assert.False(await dbVerif.AtencionesMedicas.AnyAsync(a => a.TurnoId == turnoId));
+        }
+    }
+
+    [Fact]
+    public async Task Create_ConTurnoIdDeOtroVeterinarioOSuplantandoIdentidadEnBody_Retorna403Forbidden_SinPersistirAtencion()
+    {
+        // Arrange
+        var vetLaura = await EnsureSecondVeterinarioAsync();
+        Guid vetCarlosId;
+        Guid mascotaId;
+        var turnoId = Guid.NewGuid();
+        int totalAntes;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vetCarlos = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            var mascota = await db.Mascotas.FirstAsync(m => m.Activa);
+            vetCarlosId = vetCarlos.Id;
+            mascotaId = mascota.Id;
+
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascotaId,
+                VeterinarioId = vetCarlosId,
+                FechaHora = DateTime.UtcNow.AddDays(4).Date.AddHours(11),
+                MotivoConsulta = "Turno asignado a Carlos",
+                Estado = "EnAtencion",
+                FechaHoraInicioAtencion = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await db.SaveChangesAsync();
+            totalAntes = await db.AtencionesMedicas.CountAsync();
+        }
+
+        // Autenticar como vet.laura (otro veterinario)
+        await AutenticarComoAsync("vet.laura", "VetLaura1234!");
+
+        // Act: Enviar payload intentando incluso incluir VeterinarioId de Carlos en el JSON
+        var payloadConSuplantacion = new
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            VeterinarioId = vetCarlosId,
+            MotivoConsulta = "Intento de atención por otro veterinario",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 12.0m
+        };
+
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", payloadConSuplantacion);
+
+        // Assert: 403 Forbidden porque la identidad se toma exclusivamente del JWT (vet.laura != vet.carlos)
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            Assert.Equal(totalAntes, await dbVerif.AtencionesMedicas.CountAsync());
+            Assert.False(await dbVerif.AtencionesMedicas.AnyAsync(a => a.TurnoId == turnoId));
+        }
+    }
+
+    [Fact]
+    public async Task Create_DuplicadaParaUnMismoTurno_Retorna409Conflict_ConservandoUnaUnicaAtencion()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+
+        Guid vetCarlosId;
+        Guid mascotaId;
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vet = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            var mascota = await db.Mascotas.FirstAsync(m => m.Nombre == "Milo" && m.Activa);
+            vetCarlosId = vet.Id;
+            mascotaId = mascota.Id;
+
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascotaId,
+                VeterinarioId = vetCarlosId,
+                FechaHora = DateTime.UtcNow.AddDays(5).Date.AddHours(10),
+                MotivoConsulta = "Turno único",
+                Estado = "EnAtencion",
+                FechaHoraInicioAtencion = DateTime.UtcNow.AddMinutes(-8)
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var dto1 = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Primera atención vinculada",
+            Anamnesis = "Anamnesis 1",
+            ExamenFisico = "Examen 1",
+            Diagnostico = "Diagnóstico 1",
+            Tratamiento = "Tratamiento 1",
+            PesoRegistrado = 28.5m
+        };
+
+        var dto2 = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Segunda atención duplicada",
+            Anamnesis = "Anamnesis 2",
+            ExamenFisico = "Examen 2",
+            Diagnostico = "Diagnóstico 2",
+            Tratamiento = "Tratamiento 2",
+            PesoRegistrado = 28.5m
+        };
+
+        // Act 1: Primera atención exitosa
+        var res1 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto1);
+        Assert.Equal(HttpStatusCode.Created, res1.StatusCode);
+
+        // Act 2: Segunda atención sobre el mismo turno -> 409 Conflict
+        var res2 = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto2);
+        Assert.Equal(HttpStatusCode.Conflict, res2.StatusCode);
+
+        // Assert: Exactamente una atención vinculada al turno en base de datos
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var atencionesDelTurno = await dbVerif.AtencionesMedicas
+                .Where(a => a.TurnoId == turnoId)
+                .ToListAsync();
+            Assert.Single(atencionesDelTurno);
+            Assert.Equal("Primera atención vinculada", atencionesDelTurno[0].MotivoConsulta);
+        }
+    }
+
+    [Theory]
+    [InlineData("Pendiente")]
+    [InlineData("Confirmado")]
+    [InlineData("Cancelado")]
+    [InlineData("Finalizado")]
+    public async Task Create_ConTurnoNoEnAtencion_Retorna409Conflict_SinPersistirAtencion(string estadoTurno)
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+
+        Guid vetCarlosId;
+        Guid mascotaId;
+        var turnoId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vet = await db.Usuarios.FirstAsync(u => u.Username == "vet.carlos");
+            var mascota = await db.Mascotas.FirstAsync(m => m.Activa);
+            vetCarlosId = vet.Id;
+            mascotaId = mascota.Id;
+
+            db.Turnos.Add(new Turno
+            {
+                Id = turnoId,
+                MascotaId = mascotaId,
+                VeterinarioId = vetCarlosId,
+                FechaHora = DateTime.UtcNow.AddDays(6).Date.AddHours(10),
+                MotivoConsulta = "Turno en estado no válido para vincular",
+                Estado = estadoTurno
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = mascotaId,
+            TurnoId = turnoId,
+            MotivoConsulta = "Intento en estado inválido",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 15.0m
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using (var scopeVerif = _factory.Services.CreateScope())
+        {
+            var dbVerif = scopeVerif.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            Assert.False(await dbVerif.AtencionesMedicas.AnyAsync(a => a.TurnoId == turnoId));
+        }
+    }
+
+    [Fact]
+    public async Task Create_ConTurnoInexistente_Retorna404NotFound_SinPersistirAtencion()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Activa);
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            TurnoId = Guid.NewGuid(),
+            MotivoConsulta = "Turno no existe",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen físico",
+            Diagnostico = "Diagnóstico",
+            Tratamiento = "Tratamiento",
+            PesoRegistrado = 20.0m
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_AtencionEspontaneaSinTurno_Retorna201CreatedConTurnoIdNullYSinCrearTurno()
+    {
+        // Arrange
+        await AutenticarComoVeterinarioAsync();
+        var mascotas = await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas");
+        var milo = mascotas!.First(m => m.Nombre == "Milo" && m.Activa);
+
+        int turnosAntes;
+        using (var scopeAntes = _factory.Services.CreateScope())
+        {
+            var dbAntes = scopeAntes.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            turnosAntes = await dbAntes.Turnos.CountAsync();
+        }
+
+        var dto = new AtencionMedicaCreateDTO
+        {
+            MascotaId = milo.Id,
+            TurnoId = null,
+            MotivoConsulta = "Consulta espontánea de guardia sin turno",
+            Anamnesis = "Ingreso directo por guardia",
+            ExamenFisico = "Parámetros normales",
+            Diagnostico = "Gastroenteritis leve",
+            Tratamiento = "Dieta blanda e hidratación",
+            PesoRegistrado = 28.5m
+        };
+
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/atenciones-medicas", dto);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var creada = await response.Content.ReadFromJsonAsync<AtencionMedicaResponseDTO>();
+        Assert.NotNull(creada);
+        Assert.Null(creada.TurnoId);
+
+        using (var scopeDespues = _factory.Services.CreateScope())
+        {
+            var dbDespues = scopeDespues.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            Assert.Equal(turnosAntes, await dbDespues.Turnos.CountAsync());
+        }
+    }
+
     private class FailingTurnoService : ITurnoService
     {
         public Task<TurnoResponseDTO> GetByIdAsync(Guid id) => throw new NotImplementedException();
         public Task<IEnumerable<TurnoResponseDTO>> GetAgendaAsync(AgendaFilterDTO filtro) => throw new NotImplementedException();
-        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto) => throw new NotImplementedException();
-        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto) => throw new NotImplementedException();
-        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username) => throw new NotImplementedException();
-        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username) => throw new NotImplementedException();
-        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username) => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto, Guid usuarioId = default, string rolUsuario = "") => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto, Guid usuarioId = default, string rolUsuario = "") => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username, string rolUsuario = "") => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> IniciarAtencionAsync(Guid id, Guid usuarioId, string username = "") => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username = "") => throw new NotImplementedException();
+        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username, string rolUsuario = "") => throw new NotImplementedException();
         public Task<IEnumerable<DisponibilidadVeterinarioDTO>> GetDisponibilidadVeterinarioAsync(Guid veterinarioId)
         {
             return Task.FromResult<IEnumerable<DisponibilidadVeterinarioDTO>>(new List<DisponibilidadVeterinarioDTO>
@@ -1422,11 +1855,12 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
 
         public Task<TurnoResponseDTO> GetByIdAsync(Guid id) => _realService.GetByIdAsync(id);
         public Task<IEnumerable<TurnoResponseDTO>> GetAgendaAsync(AgendaFilterDTO filtro) => _realService.GetAgendaAsync(filtro);
-        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto) => _realService.CreateManualAsync(dto);
-        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto) => _realService.UpdateAsync(id, dto);
-        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username) => _realService.ConfirmarAsync(id, usuarioId, username);
-        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username) => _realService.FinalizarAsync(id, usuarioId, username);
-        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username) => _realService.CancelarAsync(id, dto, usuarioId, username);
+        public Task<TurnoResponseDTO> CreateManualAsync(TurnoCreateDTO dto, Guid usuarioId = default, string rolUsuario = "") => _realService.CreateManualAsync(dto, usuarioId, rolUsuario);
+        public Task<TurnoResponseDTO> UpdateAsync(Guid id, TurnoUpdateDTO dto, Guid usuarioId = default, string rolUsuario = "") => _realService.UpdateAsync(id, dto, usuarioId, rolUsuario);
+        public Task<TurnoResponseDTO> ConfirmarAsync(Guid id, Guid usuarioId, string username, string rolUsuario = "") => _realService.ConfirmarAsync(id, usuarioId, username, rolUsuario);
+        public Task<TurnoResponseDTO> IniciarAtencionAsync(Guid id, Guid usuarioId, string username = "") => _realService.IniciarAtencionAsync(id, usuarioId, username);
+        public Task<TurnoResponseDTO> FinalizarAsync(Guid id, Guid usuarioId, string username = "") => _realService.FinalizarAsync(id, usuarioId, username);
+        public Task<TurnoResponseDTO> CancelarAsync(Guid id, TurnoCancelarDTO dto, Guid usuarioId, string username, string rolUsuario = "") => _realService.CancelarAsync(id, dto, usuarioId, username, rolUsuario);
         public Task<IEnumerable<DisponibilidadVeterinarioDTO>> GetDisponibilidadVeterinarioAsync(Guid veterinarioId) => _realService.GetDisponibilidadVeterinarioAsync(veterinarioId);
         public Task<IEnumerable<DisponibilidadVeterinarioDTO>> ConfigurarDisponibilidadVeterinarioAsync(Guid veterinarioId, ConfigurarDisponibilidadDTO dto) => _realService.ConfigurarDisponibilidadVeterinarioAsync(veterinarioId, dto);
 

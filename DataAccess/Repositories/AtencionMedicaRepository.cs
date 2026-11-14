@@ -66,6 +66,18 @@ public class AtencionMedicaRepository : IAtencionMedicaRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<bool> ExistsByTurnoIdAsync(Guid turnoId)
+    {
+        if (turnoId == Guid.Empty)
+        {
+            return false;
+        }
+
+        return await _context.AtencionesMedicas
+            .AsNoTracking()
+            .AnyAsync(a => a.TurnoId == turnoId);
+    }
+
     public async Task<bool> HasTurnosSeguimientoAsync(Guid atencionMedicaId)
     {
         return await _context.Turnos

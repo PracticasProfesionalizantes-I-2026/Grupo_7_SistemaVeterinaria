@@ -9,6 +9,7 @@ public class AtencionMedicaResponseDTO
     public string NombreMascota { get; set; } = string.Empty;
     public Guid VeterinarioId { get; set; }
     public string NombreVeterinario { get; set; } = string.Empty;
+    public Guid? TurnoId { get; set; }
     public DateTime Fecha { get; set; }
     public string MotivoConsulta { get; set; } = string.Empty;
     public string Anamnesis { get; set; } = string.Empty;

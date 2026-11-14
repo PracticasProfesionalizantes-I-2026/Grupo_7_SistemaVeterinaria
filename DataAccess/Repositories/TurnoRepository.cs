@@ -69,14 +69,15 @@ public class TurnoRepository : ITurnoRepository
     public async Task<bool> ExisteSuperposicionAsync(Guid veterinarioId, DateTime fechaHora, Guid? turnoIdExcluir = null)
     {
         // En bloques de 30 minutos: intervalo [fechaHora, fechaHora + 30m).
-        // Se superpone únicamente con turnos que bloquean el horario: Confirmado o Finalizado.
+        // Se superpone únicamente con turnos que bloquean el horario: Confirmado, EnAtencion o Finalizado.
         // Los turnos Pendiente no bloquean el horario; los turnos Cancelado liberan el horario.
         var inicioVentana = fechaHora.AddMinutes(-30);
         var finVentana = fechaHora.AddMinutes(30);
 
         var query = _context.Turnos
             .AsNoTracking()
-            .Where(t => t.VeterinarioId == veterinarioId && (t.Estado == "Confirmado" || t.Estado == "Finalizado"));
+            .Where(t => t.VeterinarioId == veterinarioId &&
+                        (t.Estado == "Confirmado" || t.Estado == "EnAtencion" || t.Estado == "Finalizado"));
 
         if (turnoIdExcluir.HasValue && turnoIdExcluir.Value != Guid.Empty)
         {

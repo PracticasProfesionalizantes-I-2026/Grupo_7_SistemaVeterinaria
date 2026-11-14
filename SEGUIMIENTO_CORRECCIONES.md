@@ -793,7 +793,7 @@ Se identificaron un total de **38 problemas**, clasificados según su nivel de p
 - **Hallazgos técnicos relevados:** **38**
   - **Completadas:** **29 / 38** (`SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `SEC-05`, `SEC-06`, `VAL-01`, `VAL-02`, `VAL-04`, `VAL-05`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`, `ERR-01`, `ERR-02`, `ERR-03`, `BUG-02`, `BUG-03`, `BUG-04`, `BUG-05`, `BUG-06`, `DOC-01`, `DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`, `TEST-01`, `VAL-03`).
   - **Postergadas:** **9 / 38** (`BD-01`, `BD-02`, `BD-03`, `VAL-10`, `ERR-04`, `BUG-01`, `SMELL-01`, `SMELL-02`, `SMELL-03`).
-- **Resultado final de la suite de pruebas automatizadas del backend (`dotnet test SistemaVeterinaria.slnx`):** **539 / 539 pruebas aprobadas** (`314` unitarias en `BusinessLogic.Tests` + `225` de integración en `API.Tests`, ejecutadas y verificadas con éxito sin errores ni advertencias).
+- **Resultado final de la suite de pruebas automatizadas del backend (`dotnet test SistemaVeterinaria.slnx`):** **640 / 640 pruebas aprobadas** (`376` unitarias en `BusinessLogic.Tests` + `264` de integración en `API.Tests`, ejecutadas y verificadas con éxito sin errores ni advertencias).
 
 ---
 
@@ -852,27 +852,29 @@ Durante la etapa de preparación final para la entrega técnica se realizaron la
 
 ---
 
-### 4.2. Observación Docente: RN-09 / CU-06 — Ciclo de vida de turnos e inalcanzabilidad de Finalizado
+### 4.2. Observación Docente: RN-09 / CU-06 — Incorporación del estado `EnAtencion`, trazabilidad temporal y vinculación opcional con Atenciones Médicas
 
-- **Observación formulada:** El estado `Finalizado` de los turnos resultaba inalcanzable en el diseño preliminar y la cátedra propuso incorporar el estado intermedio `EnAtencion`.
+- **Observación formulada:** Incorporar el estado intermedio `EnAtencion` en el ciclo de vida de los turnos para registrar las marcas temporales reales de inicio y finalización de las consultas (preparando el sistema para futuras estadísticas de duración y posibles cobros basados en tiempo) y exigir que un turno solo pueda finalizar si cuenta con una atención médica vinculada.
 - **Decisión técnica y funcional adoptada:**
-  - Se mantiene una máquina de estados finita de cuatro (4) estados exclusivos: **`Pendiente`**, **`Confirmado`**, **`Cancelado`** y **`Finalizado`**.
-  - **Transiciones formalizadas y permitidas:**
-    1. `Pendiente → Confirmado`: Confirmación manual por Recepcionista o Veterinario (`POST /api/turnos/{id}/confirmar`), validando agenda configurada (**RN-10**), no solapamiento (**RN-08**) y paciente activo (**RN-07**).
-    2. `Pendiente → Cancelado`: Cancelación directa con motivo obligatorio (`POST /api/turnos/{id}/cancelar`).
-    3. `Confirmado → Cancelado`: Cancelación de turnos confirmados con motivo obligatorio, liberando de inmediato el bloque de 30 minutos en la agenda (**RN-08**).
-    4. `Confirmado → Finalizado`: Finalización manual explícita (`POST /api/turnos/{id}/finalizar`), autorizada para `Recepcionista` y `Veterinario`.
-  - **Inmutabilidad estricta de Finalizado (RN-09):** Una vez que un turno pasa a `Finalizado`, no puede ser cancelado, reprogramado, modificado ni vuelto a transicionar.
-  - **Independencia absoluta de procesos:** Los turnos y las atenciones médicas son procesos funcional y técnicamente desacoplados. El registro de una atención médica no finaliza automáticamente un turno ni se alteran turnos por el simple transcurso del tiempo; la finalización es una acción manual autónoma.
-  - **Justificación de diseño:** Se resolvió la inalcanzabilidad del estado `Finalizado` mediante esta máquina de estados alternativa de 4 estados con finalización manual explícita, sin implementar `EnAtencion`. Se evitó incorporar un estado intermedio efímero que complejiza la concurrencia y no responde a la operativa real de la clínica.
-  - **Verificación de cancelación:** Se comprobó y verificó en código que la transición `Confirmado → Cancelado` está plenamente habilitada en `TurnoService.CancelarAsync`, rechazando únicamente turnos en estado `Finalizado` o ya `Cancelado`.
+  - Se implementa la máquina de estados finita de cinco (5) estados exclusivos: **`Pendiente`**, **`Confirmado`**, **`EnAtencion`**, **`Finalizado`** y **`Cancelado`**.
+  - **Transiciones formalizadas y permitidas (`Pendiente → Confirmado → EnAtencion → Finalizado`):**
+    1. `Pendiente → Confirmado`: Confirmación manual por `Recepcionista` o `Veterinario` (`POST /api/turnos/{id}/confirmar`), validando agenda configurada (**RN-10**), no solapamiento (**RN-08**) y paciente activo (**RN-07**).
+    2. `Pendiente → Cancelado` y `Confirmado → Cancelado`: Cancelación con motivo obligatorio (`POST` / `PATCH /api/turnos/{id}/cancelar`), liberando de inmediato el bloque de 30 minutos en la agenda (**RN-08**). No se permite cancelar turnos en estado `EnAtencion` ni `Finalizado`.
+    3. `Confirmado → EnAtencion`: Inicio de atención manual (`POST /api/turnos/{id}/iniciar-atencion`), autorizado exclusivamente para el rol `Veterinario` y restringido al veterinario asignado al turno (validado contra `ClaimTypes.NameIdentifier` del JWT). Registra automáticamente `FechaHoraInicioAtencion = DateTime.UtcNow`.
+    4. `EnAtencion → Finalizado`: Finalización manual (`POST /api/turnos/{id}/finalizar`), autorizada exclusivamente para el rol `Veterinario` y restringida al veterinario asignado al turno. Exige obligatoriamente que exista una atención médica vinculada mediante `AtencionMedica.TurnoId` (`TurnoSinAtencionMedicaException` → `409 Conflict`) y registra automáticamente `FechaHoraFinAtencion = DateTime.UtcNow`.
+  - **Protección de turnos en curso o cerrados (RN-09):** Los turnos en estado `EnAtencion`, `Finalizado` o `Cancelado` no pueden reprogramarse (`PUT /api/turnos/{id}`) ni cancelarse (`TurnoEnAtencionException`, `TurnoFinalizadoException`, `TurnoYaCanceladoException`).
+  - **Vinculación opcional 1:1 (`AtencionMedica.TurnoId`) y atenciones espontáneas:**
+    - `AtencionMedica.TurnoId` es opcional (`Guid?`): permite registrar atenciones médicas espontáneas sin turno previo (`TurnoId = null`) o vincular la atención a un turno que esté `EnAtencion`, pertenezca a la misma mascota (`TurnoMascotaNoCoincideException` → `409`) y al mismo veterinario autenticado (`TurnoVeterinarioNoAutorizadoException` → `403`), admitiendo como máximo una atención médica vinculada por turno (`TurnoYaTieneAtencionException` → `409` e índice único filtrado en base de datos).
+    - Se diferencia explícitamente `AtencionMedica.TurnoId` (relación opcional `1:1` hacia el turno de consulta atendido) de `Turno.AtencionMedicaId` (relación opcional `1:N` hacia los turnos futuros de seguimiento crónico originados por la atención médica).
+  - **Alcance de estadísticas:** El estado `EnAtencion` posee finalidad operativa en la agenda de turnos (`GET /api/turnos`) y las marcas `FechaHoraInicioAtencion` / `FechaHoraFinAtencion` se almacenan para futuras métricas de duración; no se agrega `TurnosEnAtencion` como estadística de gestión ni se implementan cálculos de duración o cobros en esta versión.
 - **Documentos actualizados:**
-  1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-06-gestionar-turnos.md`: Se formalizaron los Flujos 3.5 (Confirmar) y 3.6 (Finalizar), los flujos alternativos 3i, 3j, 3k, las sub-variaciones 5 y 6, las postcondiciones, la matriz de transiciones del ciclo de vida y la matriz de trazabilidad a tests. Se removieron menciones obsoletas a `EnAtencion`.
-  2. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-05-consultar-agenda-de-turnos.md`: Se eliminó la mención de `EnAtencion` del catálogo de estados filtrables.
-  3. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Se actualizaron los requerimientos funcionales de turnos y la especificación formal de la regla de negocio `RN-09`.
+  1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-06-gestionar-turnos.md`: Flujos `3.5` (Confirmar), `3.6` (Iniciar atención) y `3.7` (Finalizar), flujos alternativos `3i` a `3o`, matriz de transiciones de 5 estados y matriz de trazabilidad.
+  2. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-04-registrar-atencion-medica.md`: Vinculación opcional `1:1` mediante `TurnoId`, atenciones espontáneas (`TurnoId = null`), flujos alternativos `3e` a `3i` y distinción con `Turno.AtencionMedicaId`.
+  3. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-05-consultar-agenda-de-turnos.md`: Inclusión de `EnAtencion` en el catálogo de filtro por estado y campos `fechaHoraInicioAtencion` / `fechaHoraFinAtencion`.
+  4. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Requerimientos funcionales y reglas de negocio `RN-08`, `RN-09` y `RN-11`.
 - **Pruebas asociadas:**
-  - Unitarias (`TurnoServiceTests`): `FinalizarAsync_TurnoConfirmado_CambiaEstadoAFinalizadoYRetornaTurnoResponseDTO`, `FinalizarAsync_TurnoNoEstaEnEstadoConfirmado_LanzaTurnoNoConfirmadoException`, `ConfirmarAsync_TurnoExistenteEnEstadoPendiente_ConfirmaTurnoYRetornaTurnoResponseDTO`.
-  - Integración HTTP (`TurnosEndpointsTests`): `Finalizar_ConRolRecepcionista_TurnoConfirmado_Retorna200OKYEstadoFinalizado`, `Finalizar_ConRolVeterinario_TurnoConfirmado_Retorna200OKYEstadoFinalizado`, `Finalizar_TurnoEnEstadoPendiente_Retorna409Conflict`, `Confirmar_ConRolRecepcionista_TurnoPendienteValido_Retorna200OKYEstadoConfirmado`.
+  - Unitarias (`TurnoServiceTests`, `AtencionMedicaServiceTests`): `IniciarAtencionAsync_TurnoConfirmadoYMismoVeterinario_CambiaAEnAtencionYRegistraFechaHoraInicioUtc`, `FinalizarAsync_TurnoEnAtencionConAtencionMedicaVinculada_CambiaAFinalizadoYRegistraFechaHoraFinUtc`, `FinalizarAsync_TurnoEnAtencionSinAtencionMedicaVinculada_LanzaTurnoSinAtencionMedicaException`, `CreateAsync_ConTurnoEnAtencionValido_PersisteAtencionVinculadaConTurnoId`, `CreateAsync_AtencionEspontaneaConTurnoIdNull_PersisteSinValidarTurnos`, etc.
+  - Integración HTTP (`TurnosEndpointsTests`, `AtencionesMedicasEndpointsTests`): `IniciarAtencion_ConVeterinarioAsignadoYTurnoConfirmado_Retorna200OKYEstadoEnAtencion`, `Finalizar_ConVeterinarioAsignadoTurnoEnAtencionYAtencionVinculada_Retorna200OKYEstadoFinalizado`, `Finalizar_TurnoEnAtencionSinAtencionMedicaVinculada_Retorna409Conflict`, `Create_ConTurnoEnAtencionValido_Retorna201YVinculaTurnoId`, `Create_AtencionEspontaneaSinTurnoId_Retorna201Created`, etc.
 - **Estado:** Completada.
 
 ---
@@ -883,13 +885,13 @@ Durante la etapa de preparación final para la entrega técnica se realizaron la
 - **Decisión técnica y funcional adoptada:**
   - **Atomicidad transaccional total:** Se implementó una transacción explícita de Entity Framework Core (`IDbContextTransaction`) sobre el mismo `VeterinariaDbContext` coordinado entre `AtencionMedicaRepository` y `TurnoRepository` (`BeginTransactionAsync`, `CommitTransactionAsync`, `RollbackTransactionAsync`).
   - **Escrituras incluidas en la transacción indivisible:**
-    1. Registro de la entidad `AtencionMedica` inmutable (**RN-01**).
+    1. Registro de la entidad `AtencionMedica` inmutable (**RN-01**), incluyendo opcionalmente `TurnoId` cuando se vincula a un turno en `EnAtencion`.
     2. Guardado en cascada de sus entidades hijas clínicas: prescripciones (`Prescripcion`), estudios (`EstudioComplementario`) y procedimientos quirúrgicos (`ProcedimientoQuirurgico`) (**RN-02**).
     3. Actualización de la fecha de última visita en `Mascota` respetando la regla estricta de no retroceso (**INF-07**).
-    4. Generación y almacenamiento de la serie de turnos de seguimiento crónico (`Turno`) en estado inicial `Pendiente` a lo largo de seis meses (**RN-11**), asociados a la atención mediante `AtencionMedicaId`.
+    4. Generación y almacenamiento de la serie de turnos de seguimiento crónico (`Turno`) en estado inicial `Pendiente` a lo largo de seis meses (**RN-11**), asociados a la atención mediante `Turno.AtencionMedicaId`.
   - **Comportamiento ante fallos (Rollback total):** Si ocurre cualquier excepción, timeout o error en base de datos durante cualquiera de las etapas (incluyendo fallos en la persistencia de turnos), se aborta la transacción y se ejecuta un rollback integral. No se confirman atenciones huérfanas ni escrituras parciales.
-  - **Independencia de turnos de consulta:** Las atenciones médicas no requieren turnos previos, no poseen `TurnoId` ni finalizan turnos automáticamente. La propiedad `AtencionMedicaId` en los turnos de seguimiento crónico funciona exclusivamente como referencia de origen.
-  - **Limitación técnica documentada:** El sistema no dispone de una clave de idempotencia por solicitud HTTP. En consecuencia, dos peticiones idénticas enviadas y completadas con éxito generarán dos atenciones independientes con sus respectivas series de turnos.
+  - **Distinción de relaciones entre turnos y atenciones médicas:** `AtencionMedica.TurnoId` (relación opcional `1:1`) vincula la atención médica con el turno de consulta en estado `EnAtencion` (permitiendo también atenciones espontáneas con `TurnoId = null`), mientras que `Turno.AtencionMedicaId` (relación opcional `1:N`) identifica la atención médica que originó los turnos futuros de seguimiento crónico.
+  - **Limitación técnica documentada:** El sistema no dispone de una clave de idempotencia por solicitud HTTP. En consecuencia, dos peticiones idénticas de atención espontánea (`TurnoId = null`) enviadas y completadas con éxito generarán dos atenciones independientes con sus respectivas series de turnos.
 - **Documentos actualizados:**
   1. `Documentos/Casos_de_uso/Casos_de_uso_tp/cu-04-registrar-atencion-medica.md`: Se actualizaron el Flujo Principal (Paso 4), el Flujo Alternativo 4a (rollback integral), la sección de seguimiento crónico en el anexo, la descripción de atomicidad y la matriz de trazabilidad a tests.
   2. `Documentos/Bussines/DOCUMENTACION PROYECTO-SistemaVeterinaria.md`: Se ajustaron los requerimientos funcionales de atenciones médicas y turnos crónicos, y se reformuló formalmente la regla `RN-11`.

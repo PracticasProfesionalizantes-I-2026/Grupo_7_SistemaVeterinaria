@@ -15,15 +15,21 @@ public class AtencionMedicaService : IAtencionMedicaService
     private readonly IAtencionMedicaRepository _atencionMedicaRepository;
     private readonly IMascotaRepository _mascotaRepository;
     private readonly ITurnoService? _turnoService;
+    private readonly ITurnoRepository? _turnoRepository;
+    private readonly IUsuarioRepository? _usuarioRepository;
 
     public AtencionMedicaService(
         IAtencionMedicaRepository atencionMedicaRepository, 
         IMascotaRepository mascotaRepository,
-        ITurnoService? turnoService = null)
+        ITurnoService? turnoService = null,
+        ITurnoRepository? turnoRepository = null,
+        IUsuarioRepository? usuarioRepository = null)
     {
         _atencionMedicaRepository = atencionMedicaRepository;
         _mascotaRepository = mascotaRepository;
         _turnoService = turnoService;
+        _turnoRepository = turnoRepository;
+        _usuarioRepository = usuarioRepository;
     }
 
     public async Task<IEnumerable<AtencionMedicaResponseDTO>> GetAllAsync()
@@ -82,6 +88,16 @@ public class AtencionMedicaService : IAtencionMedicaService
         if (!mascota.Activa)
         {
             throw new MascotaInactivaException(dto.MascotaId);
+        }
+
+        using var bloqueoTurno = dto.TurnoId.HasValue
+            ? await VeterinarioLockManager.AdquirirBloqueoTurnoAsync(dto.TurnoId.Value)
+            : null;
+
+        Turno? turnoVinculado = null;
+        if (dto.TurnoId.HasValue)
+        {
+            turnoVinculado = await ObtenerYValidarTurnoVinculadoAsync(dto.TurnoId.Value, dto.MascotaId, veterinarioId);
         }
 
         // 2. Nivel 1: Alerta de Desnutrición (RN-12)
@@ -171,6 +187,7 @@ public class AtencionMedicaService : IAtencionMedicaService
         {
             MascotaId = dto.MascotaId,
             VeterinarioId = veterinarioId,
+            TurnoId = dto.TurnoId,
             Fecha = DateTime.UtcNow,
             MotivoConsulta = dto.MotivoConsulta.Trim(),
             Anamnesis = dto.Anamnesis.Trim(),
@@ -246,7 +263,20 @@ public class AtencionMedicaService : IAtencionMedicaService
         var transaction = await _atencionMedicaRepository.BeginTransactionAsync();
         try
         {
-            var atencionCreada = await _atencionMedicaRepository.CreateAsync(nuevaAtencion);
+            AtencionMedica atencionCreada;
+            if (dto.TurnoId.HasValue && turnoVinculado != null)
+            {
+                using (await VeterinarioLockManager.AdquirirBloqueoAsync(turnoVinculado.VeterinarioId))
+                {
+                    await RevalidarTurnoEnSeccionCriticaAsync(turnoVinculado, dto.MascotaId, veterinarioId);
+                    atencionCreada = await _atencionMedicaRepository.CreateAsync(nuevaAtencion);
+                }
+            }
+            else
+            {
+                atencionCreada = await _atencionMedicaRepository.CreateAsync(nuevaAtencion);
+            }
+
             atencionCreada.Mascota ??= mascota;
 
             // 6. Nivel 3: Seguimiento de enfermedades crónicas (RN-11 / CU-06)
@@ -324,6 +354,14 @@ public class AtencionMedicaService : IAtencionMedicaService
                 mensajeAlertaDesnutricion,
                 veterinarioNombre);
         }
+        catch (DbUpdateException ex) when (
+            dto.TurnoId.HasValue &&
+            ex.InnerException?.Message != null &&
+            ex.InnerException.Message.Contains("TurnoId", StringComparison.OrdinalIgnoreCase))
+        {
+            await _atencionMedicaRepository.RollbackTransactionAsync(transaction);
+            throw new TurnoYaTieneAtencionException(dto.TurnoId.Value);
+        }
         catch
         {
             await _atencionMedicaRepository.RollbackTransactionAsync(transaction);
@@ -350,10 +388,90 @@ public class AtencionMedicaService : IAtencionMedicaService
         throw new AtencionInmutableException(id);
     }
 
+    private async Task<Turno> ObtenerYValidarTurnoVinculadoAsync(Guid turnoId, Guid mascotaId, Guid? veterinarioId)
+    {
+        Turno? turno = null;
+        if (_turnoRepository != null)
+        {
+            turno = await _turnoRepository.GetByIdTrackedAsync(turnoId)
+                 ?? await _turnoRepository.GetByIdAsync(turnoId);
+        }
+        else if (_turnoService != null)
+        {
+            var turnoDto = await _turnoService.GetByIdAsync(turnoId);
+            if (turnoDto != null)
+            {
+                turno = new Turno
+                {
+                    Id = turnoDto.Id,
+                    MascotaId = turnoDto.MascotaId,
+                    VeterinarioId = turnoDto.VeterinarioId,
+                    Estado = turnoDto.Estado,
+                    FechaHora = turnoDto.FechaHora,
+                    MotivoConsulta = turnoDto.MotivoConsulta
+                };
+            }
+        }
+
+        if (turno == null)
+        {
+            throw new TurnoNotFoundException(turnoId);
+        }
+
+        await ValidarReglasTurnoVinculadoAsync(turno, mascotaId, veterinarioId);
+        return turno;
+    }
+
+    private async Task RevalidarTurnoEnSeccionCriticaAsync(Turno turno, Guid mascotaId, Guid? veterinarioId)
+    {
+        if (_turnoRepository != null)
+        {
+            await _turnoRepository.ReloadAsync(turno);
+        }
+
+        await ValidarReglasTurnoVinculadoAsync(turno, mascotaId, veterinarioId);
+    }
+
+    private async Task ValidarReglasTurnoVinculadoAsync(Turno turno, Guid mascotaId, Guid? veterinarioId)
+    {
+        // 2. Exigir que esté EnAtencion
+        if (!string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new TurnoNoEnAtencionException(turno.Id, turno.Estado);
+        }
+
+        // 3. Verificar que la mascota coincida
+        if (turno.MascotaId != mascotaId)
+        {
+            throw new TurnoMascotaNoCoincideException(turno.Id, mascotaId);
+        }
+
+        // 4. Verificar que el veterinario coincida y esté autorizado
+        if (!veterinarioId.HasValue || veterinarioId.Value == Guid.Empty || turno.VeterinarioId != veterinarioId.Value)
+        {
+            throw new TurnoVeterinarioNoAutorizadoException(turno.Id, veterinarioId ?? Guid.Empty);
+        }
+
+        var usuarioVet = (_usuarioRepository != null ? await _usuarioRepository.GetByIdAsync(veterinarioId.Value) : null) ?? turno.Veterinario;
+        if ((_usuarioRepository != null && usuarioVet == null) ||
+            (usuarioVet != null && (!usuarioVet.Activo || !string.Equals(usuarioVet.Rol, "Veterinario", StringComparison.OrdinalIgnoreCase))))
+        {
+            throw new TurnoVeterinarioNoAutorizadoException(turno.Id, veterinarioId.Value);
+        }
+
+        // 5. Verificar que no exista otra atención médica vinculada
+        if (await _atencionMedicaRepository.ExistsByTurnoIdAsync(turno.Id))
+        {
+            throw new TurnoYaTieneAtencionException(turno.Id);
+        }
+    }
+
     private static void ValidateCreateDto(AtencionMedicaCreateDTO dto)
     {
         if (dto.MascotaId == Guid.Empty)
             throw new ValidationException("El identificador de la mascota es obligatorio.");
+        if (dto.TurnoId.HasValue && dto.TurnoId.Value == Guid.Empty)
+            throw new ValidationException("El identificador del turno asociado no es válido.");
         if (string.IsNullOrWhiteSpace(dto.MotivoConsulta))
             throw new ValidationException("El motivo de consulta es obligatorio.");
         if (dto.MotivoConsulta.Trim().Length > 250)
@@ -524,6 +642,7 @@ public class AtencionMedicaService : IAtencionMedicaService
             NombreMascota = atencion.Mascota != null ? atencion.Mascota.Nombre : string.Empty,
             VeterinarioId = atencion.VeterinarioId ?? Guid.Empty,
             NombreVeterinario = veterinarioNombreParam ?? (atencion.Veterinario != null ? atencion.Veterinario.Username : string.Empty),
+            TurnoId = atencion.TurnoId,
             Fecha = atencion.Fecha,
             MotivoConsulta = atencion.MotivoConsulta,
             Anamnesis = atencion.Anamnesis,

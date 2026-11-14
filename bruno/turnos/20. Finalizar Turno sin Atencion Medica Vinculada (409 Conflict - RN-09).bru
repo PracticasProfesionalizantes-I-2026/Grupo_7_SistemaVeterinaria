@@ -1,0 +1,16 @@
+meta {
+  name: 20. Finalizar Turno sin Atencion Medica Vinculada (409 Conflict - RN-09)
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/api/turnos/{{turnoEnAtencionId}}/finalizar
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+

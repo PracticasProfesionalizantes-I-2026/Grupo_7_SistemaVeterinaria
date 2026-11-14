@@ -7,6 +7,9 @@ public class AtencionMedicaCreateDTO
     [Required(ErrorMessage = "El identificador de la mascota es obligatorio.")]
     public Guid MascotaId { get; set; }
 
+    // Identificador opcional del turno asociado a la consulta (Etapa 1 - EnAtencion)
+    public Guid? TurnoId { get; set; }
+
     [Required(ErrorMessage = "El motivo de consulta es obligatorio.")]
     [MaxLength(250, ErrorMessage = "El motivo de consulta no puede superar los 250 caracteres.")]
     public string MotivoConsulta { get; set; } = string.Empty;

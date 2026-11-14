@@ -134,6 +134,15 @@ public class VeterinariaDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(a => a.VeterinarioId)
                   .OnDelete(DeleteBehavior.Restrict);
+
+            // Relación 1:1 opcional con el turno de la consulta (Etapa 1 - EnAtencion)
+            entity.HasIndex(a => a.TurnoId)
+                  .IsUnique();
+
+            entity.HasOne(a => a.Turno)
+                  .WithOne()
+                  .HasForeignKey<AtencionMedica>(a => a.TurnoId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Configuración de ProcedimientoQuirurgico

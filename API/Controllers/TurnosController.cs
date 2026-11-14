@@ -54,14 +54,26 @@ public class TurnosController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<TurnoResponseDTO>> Create([FromBody] TurnoCreateDTO dto)
     {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var rolUsuario = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
         try
         {
-            var result = await _turnoService.CreateManualAsync(dto);
+            var result = await _turnoService.CreateManualAsync(dto, usuarioId, rolUsuario);
             return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
         }
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (MascotaNotFoundException ex)
         {
@@ -84,14 +96,26 @@ public class TurnosController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<TurnoResponseDTO>> Update(Guid id, [FromBody] TurnoUpdateDTO dto)
     {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var rolUsuario = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
         try
         {
-            var result = await _turnoService.UpdateAsync(id, dto);
+            var result = await _turnoService.UpdateAsync(id, dto, usuarioId, rolUsuario);
             return Ok(result);
         }
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (TurnoNotFoundException ex)
         {
@@ -117,6 +141,10 @@ public class TurnosController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (TurnoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
         catch (HorarioNoDisponibleException ex)
         {
             return Conflict(new { message = ex.Message });
@@ -128,20 +156,25 @@ public class TurnosController : ControllerBase
     {
         var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Usuario";
+        var rolUsuario = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
 
-        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId))
+        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
         {
             return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
         }
 
         try
         {
-            var result = await _turnoService.ConfirmarAsync(id, usuarioId, usuarioUsername);
+            var result = await _turnoService.ConfirmarAsync(id, usuarioId, usuarioUsername, rolUsuario);
             return Ok(result);
         }
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (TurnoNotFoundException ex)
         {
@@ -159,19 +192,79 @@ public class TurnosController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (TurnoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
         catch (HorarioNoDisponibleException ex)
         {
             return Conflict(new { message = ex.Message });
         }
     }
 
+    [HttpPost("{id:guid}/iniciar-atencion")]
+    [Authorize(Roles = "Veterinario")]
+    public async Task<ActionResult<TurnoResponseDTO>> IniciarAtencion(Guid id)
+    {
+        var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Veterinario";
+
+        if (string.IsNullOrWhiteSpace(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
+        {
+            return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
+        }
+
+        try
+        {
+            var result = await _turnoService.IniciarAtencionAsync(id, usuarioId, usuarioUsername);
+            return Ok(result);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (TurnoNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (MascotaNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (MascotaInactivaException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoNoConfirmadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoFinalizadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoYaCanceladoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("{id:guid}/finalizar")]
+    [Authorize(Roles = "Veterinario")]
     public async Task<ActionResult<TurnoResponseDTO>> Finalizar(Guid id)
     {
         var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Usuario";
+        var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Veterinario";
 
-        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId))
+        if (string.IsNullOrWhiteSpace(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
         {
             return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
         }
@@ -181,15 +274,39 @@ public class TurnosController : ControllerBase
             var result = await _turnoService.FinalizarAsync(id, usuarioId, usuarioUsername);
             return Ok(result);
         }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (TurnoNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (TurnoNoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoSinAtencionMedicaException ex)
+        {
+            return Conflict(new { message = ex.Message });
         }
         catch (TurnoNoConfirmadoException ex)
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (TurnoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
         catch (TurnoFinalizadoException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoYaCanceladoException ex)
         {
             return Conflict(new { message = ex.Message });
         }
@@ -201,24 +318,33 @@ public class TurnosController : ControllerBase
     {
         var usuarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var usuarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Usuario";
+        var rolUsuario = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
 
-        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId))
+        if (string.IsNullOrEmpty(usuarioIdClaim) || !Guid.TryParse(usuarioIdClaim, out var usuarioId) || usuarioId == Guid.Empty)
         {
             return Unauthorized(new { message = "Token inválido o reclamos de usuario ausentes." });
         }
 
         try
         {
-            var result = await _turnoService.CancelarAsync(id, dto, usuarioId, usuarioUsername);
+            var result = await _turnoService.CancelarAsync(id, dto, usuarioId, usuarioUsername, rolUsuario);
             return Ok(result);
         }
         catch (ValidationException ex)
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
         catch (TurnoNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
         }
         catch (TurnoFinalizadoException ex)
         {

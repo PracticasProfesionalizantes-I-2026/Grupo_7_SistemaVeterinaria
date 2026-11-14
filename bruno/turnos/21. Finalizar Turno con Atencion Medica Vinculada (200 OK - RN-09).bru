@@ -1,0 +1,23 @@
+meta {
+  name: 21. Finalizar Turno con Atencion Medica Vinculada (200 OK - RN-09)
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/api/turnos/{{turnoEnAtencionId}}/finalizar
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenVeterinario}}
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("turnoFinalizadoId", data.id);
+  }
+}
+
