@@ -62,7 +62,7 @@ public class AtencionesMedicasController : ControllerBase
         var veterinarioIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var veterinarioUsername = User.FindFirst(ClaimTypes.Name)?.Value ?? User.Identity?.Name ?? "Veterinario";
 
-        if (string.IsNullOrEmpty(veterinarioIdClaim) || !Guid.TryParse(veterinarioIdClaim, out var veterinarioId))
+        if (string.IsNullOrWhiteSpace(veterinarioIdClaim) || !Guid.TryParse(veterinarioIdClaim, out var veterinarioId) || veterinarioId == Guid.Empty)
         {
             return Unauthorized(new { message = "Token inválido o reclamos de Veterinario ausentes." });
         }
@@ -79,6 +79,26 @@ public class AtencionesMedicasController : ControllerBase
         catch (MascotaNotFoundException ex)
         {
             return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (TurnoVeterinarioNoAutorizadoException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (TurnoNoEnAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoMascotaNoCoincideException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (TurnoYaTieneAtencionException ex)
+        {
+            return Conflict(new { message = ex.Message });
         }
         catch (MascotaInactivaException ex)
         {

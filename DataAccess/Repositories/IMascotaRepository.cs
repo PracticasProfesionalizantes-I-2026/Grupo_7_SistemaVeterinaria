@@ -13,4 +13,5 @@ public interface IMascotaRepository
     Task<bool> UpdateUltimaVisitaAsync(Guid mascotaId, DateTime fechaVisita);
     Task ReasignarDuenoConHistorialAsync(Mascota mascota, HistorialPropietario historial);
     Task<IEnumerable<Mascota>> BuscarAsync(string criterio);
+    Task<IEnumerable<Mascota>> GetByRangoFechasAsync(DateTime desde, DateTime hasta);
 }

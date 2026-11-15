@@ -17,7 +17,7 @@
 ---
 
 ### 1. BREVE DESCRIPCIÓN
-Permite al veterinario o a la recepcionista consultar el listado y cronograma de turnos registrados en el sistema, visualizando la agenda por fecha, horario, mascota, dueño, motivo de consulta, estado del turno y profesional asignado, con capacidad de filtrado multicriterio.
+Permite al veterinario o a la recepcionista consultar el listado y cronograma de turnos registrados en el sistema, visualizando la agenda por fecha, horario, mascota, dueño, motivo de consulta, estado operativo del turno (`Pendiente`, `Confirmado`, `EnAtencion`, `Finalizado`, `Cancelado`), marcas temporales de inicio y fin de atención (`fechaHoraInicioAtencion`, `fechaHoraFinAtencion`) y profesional asignado, con capacidad de filtrado multicriterio.
 
 ### 2. PRECONDICIONES
 - El usuario debe haber iniciado sesión y poseer un Token JWT válido con rol de `Recepcionista` o `Veterinario` (el rol `Administrador` no posee permisos para consultar ni gestionar la agenda de turnos).
@@ -34,7 +34,7 @@ Permite al veterinario o a la recepcionista consultar el listado y cronograma de
 ### 4. FLUJOS ALTERNATIVOS (Caminos Tristes / Excepciones)
 
 * **1a. Parámetros de fecha o filtros inválidos (HTTP 400 Bad Request):**
-  1. Si en el Paso 1 el parámetro `fecha` no corresponde a una fecha válida (ej. `YYYY-MM-DD` mal formado) o el `estado` no coincide con los valores permitidos del catálogo (`Pendiente`, `Confirmado`, `Finalizado`, `Cancelado`).
+  1. Si en el Paso 1 el parámetro `fecha` no corresponde a una fecha válida (ej. `YYYY-MM-DD` mal formado) o el `estado` no coincide con los valores permitidos del catálogo (`Pendiente`, `Confirmado`, `EnAtencion`, `Finalizado`, `Cancelado`).
   2. La Capa de Presentación rechaza la petición por validación de parámetros.
   3. El Sistema devuelve un código **400 Bad Request**. Fin del caso de uso.
 

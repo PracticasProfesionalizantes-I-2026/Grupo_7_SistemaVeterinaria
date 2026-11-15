@@ -21,6 +21,10 @@ public class Turno
     public Guid? UsuarioCancelacionId { get; set; }
     public string? UsuarioCancelacionUsername { get; set; }
 
+    // Tiempos reales de atención clínica (Etapa 1 - EnAtencion)
+    public DateTime? FechaHoraInicioAtencion { get; set; }
+    public DateTime? FechaHoraFinAtencion { get; set; }
+
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
 
     // Navegación (unidireccional o referencial)

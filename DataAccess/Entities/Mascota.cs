@@ -12,6 +12,13 @@ public class Mascota
     public decimal Peso { get; set; }
     public bool Activa { get; set; } = true;
     public DateTime? FechaUltimaVisita { get; set; }
+
+    /// <summary>
+    /// Fecha de alta en el sistema (UTC). Es inmutable y se asigna explícitamente al registrar.
+    /// NULL en las mascotas históricas anteriores a esta columna: su alta es desconocida
+    /// y no se contabilizan en reportes de altas por período.
+    /// </summary>
+    public DateTime? FechaRegistro { get; set; }
     public string? Observaciones { get; set; }
 
     // Navegación

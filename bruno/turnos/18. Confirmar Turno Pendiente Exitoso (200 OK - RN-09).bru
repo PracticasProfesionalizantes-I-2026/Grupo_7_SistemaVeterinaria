@@ -1,0 +1,23 @@
+meta {
+  name: 18. Confirmar Turno Pendiente Exitoso (200 OK - RN-09)
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/turnos/{{turnoPendienteId}}/confirmar
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenRecepcionista}}
+}
+
+script:post-response {
+  const data = res.getBody();
+  if (data && data.id) {
+    bru.setEnvVar("turnoId", data.id);
+  }
+}
+

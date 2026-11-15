@@ -94,6 +94,8 @@ public class VeterinariaDbContext : DbContext
             entity.Property(m => m.Peso).HasPrecision(6, 2);
             entity.Property(m => m.Activa).IsRequired().HasDefaultValue(true);
             entity.Property(m => m.Observaciones).HasMaxLength(500);
+            // Nullable: las mascotas históricas conservan NULL (alta desconocida)
+            entity.Property(m => m.FechaRegistro).IsRequired(false);
 
             // Relación hija 1:N con DeleteBehavior.Restrict
             entity.HasOne(m => m.Dueno)
@@ -133,6 +135,15 @@ public class VeterinariaDbContext : DbContext
             entity.HasOne(a => a.Veterinario)
                   .WithMany()
                   .HasForeignKey(a => a.VeterinarioId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            // Relación 1:1 opcional con el turno de la consulta (Etapa 1 - EnAtencion)
+            entity.HasIndex(a => a.TurnoId)
+                  .IsUnique();
+
+            entity.HasOne(a => a.Turno)
+                  .WithOne()
+                  .HasForeignKey<AtencionMedica>(a => a.TurnoId)
                   .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -229,8 +240,13 @@ public class VeterinariaDbContext : DbContext
             entity.Property(t => t.UsuarioCancelacionUsername).HasMaxLength(50);
             entity.Property(t => t.FechaCreacion).IsRequired();
 
-            entity.HasIndex(t => new { t.VeterinarioId, t.FechaHora });
+            entity.HasIndex(t => new { t.VeterinarioId, t.FechaHora })
+                  .IsUnique()
+                  .HasFilter("Estado IN ('Confirmado', 'EnAtencion', 'Finalizado')");
             entity.HasIndex(t => t.AtencionMedicaId);
+            entity.HasIndex(t => new { t.AtencionMedicaId, t.FechaHora })
+                  .IsUnique()
+                  .HasFilter("AtencionMedicaId IS NOT NULL AND Estado <> 'Cancelado'");
 
             entity.HasOne(t => t.Mascota)
                   .WithMany()
@@ -259,7 +275,8 @@ public class VeterinariaDbContext : DbContext
             entity.Property(d => d.HoraFin).IsRequired();
             entity.Property(d => d.Activo).IsRequired().HasDefaultValue(true);
 
-            entity.HasIndex(d => new { d.VeterinarioId, d.DiaSemana, d.Jornada });
+            entity.HasIndex(d => new { d.VeterinarioId, d.DiaSemana, d.Jornada })
+                  .IsUnique();
 
             entity.HasOne(d => d.Veterinario)
                   .WithMany()

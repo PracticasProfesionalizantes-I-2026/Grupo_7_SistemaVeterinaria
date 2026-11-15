@@ -13,3 +13,22 @@ get {
 auth:bearer {
   token: {{tokenVeterinario}}
 }
+
+script:post-response {
+  const data = res.getBody();
+  if (Array.isArray(data) && data.length > 0) {
+    bru.setEnvVar("turnoBaseId", data[0].id);
+    const pendiente = data.find(t => t.estado === "Pendiente");
+    if (pendiente) {
+      bru.setEnvVar("turnoPendienteId", pendiente.id);
+    }
+    const enAtencion = data.find(t => t.estado === "EnAtencion");
+    if (enAtencion) {
+      bru.setEnvVar("turnoEnAtencionId", enAtencion.id);
+    }
+    const finalizado = data.find(t => t.estado === "Finalizado");
+    if (finalizado) {
+      bru.setEnvVar("turnoFinalizadoId", finalizado.id);
+    }
+  }
+}

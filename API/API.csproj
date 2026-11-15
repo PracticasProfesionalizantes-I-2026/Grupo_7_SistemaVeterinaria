@@ -5,6 +5,7 @@
     <AssemblyName>SistemaVeterinaria.API</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>patitas-api-7f4c9a2e-5b1d-4e8a-9c3f-1d2e3f4a5b6c</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

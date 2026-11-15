@@ -150,7 +150,8 @@ public static class DbInitializer
             Peso = 28.5m,
             Activa = true,
             Observaciones = "Paciente dócil, alérgico a ciertas marcas de antipulgas.",
-            FechaUltimaVisita = DateTime.UtcNow.AddDays(-15)
+            FechaUltimaVisita = DateTime.UtcNow.AddDays(-15),
+            FechaRegistro = DateTime.UtcNow.AddMonths(-2)
         };
 
         var mascota2 = new Mascota
@@ -165,7 +166,8 @@ public static class DbInitializer
             Peso = 4.2m,
             Activa = true,
             Observaciones = "Vacunación al día, esterilizada.",
-            FechaUltimaVisita = null
+            FechaUltimaVisita = null,
+            FechaRegistro = DateTime.UtcNow.AddDays(-10)
         };
 
         var mascota3 = new Mascota
@@ -180,7 +182,8 @@ public static class DbInitializer
             Peso = 32.0m,
             Activa = false, // Mascota Inactiva de prueba para validar RN-07 / MEJ-03
             Observaciones = "Baja lógica por mudanza del propietario fuera de la jurisdicción.",
-            FechaUltimaVisita = DateTime.UtcNow.AddMonths(-2)
+            FechaUltimaVisita = DateTime.UtcNow.AddMonths(-2),
+            FechaRegistro = DateTime.UtcNow.AddMonths(-3)
         };
 
         await context.Mascotas.AddRangeAsync(mascota1, mascota2, mascota3);

@@ -1,12 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using BusinessLogic.Interfaces;
 using BusinessLogic.Services;
 using DataAccess.Context;
 using DataAccess.Repositories;
 using DataAccess.Seeding;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -124,7 +126,48 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// Configuración de OpenAPI y Scalar
+// Configuración de Rate Limiting para endpoints de autenticación (por IP)
+var authPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthPermitLimit") ?? 10;
+var authWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:AuthWindowSeconds") ?? 60;
+if (authPermitLimit <= 0)
+{
+    authPermitLimit = 10;
+}
+
+if (authWindowSeconds <= 0)
+{
+    authWindowSeconds = 60;
+}
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { message = "Demasiadas solicitudes de autenticación desde esta dirección IP. Por favor, intente nuevamente más tarde." },
+            cancellationToken);
+    };
+
+    options.AddPolicy("AuthPolicy", httpContext =>
+    {
+        var ipPartitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ipPartitionKey,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = authPermitLimit,
+                Window = TimeSpan.FromSeconds(authWindowSeconds),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+});
+
+// Configuración de OpenAPI (especificación nativa en /openapi/v1.json; Scalar no está implementado)
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -161,6 +204,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

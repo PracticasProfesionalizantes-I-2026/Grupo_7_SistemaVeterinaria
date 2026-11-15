@@ -1,0 +1,24 @@
+meta {
+  name: 23. Finalizar Turno - Veterinario o Rol No Autorizado (403 Forbidden - RN-09)
+  type: http
+  seq: 24
+}
+
+post {
+  url: {{baseUrl}}/api/turnos/{{turnoEnAtencionId}}/finalizar
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenOtroVeterinario}}
+}
+
+script:pre-request {
+  // Si no se configuró un token de otro veterinario, utiliza el token de Recepcionista para verificar el rechazo 403 Forbidden
+  const otroVet = bru.getEnvVar("tokenOtroVeterinario");
+  if (!otroVet) {
+    bru.setEnvVar("tokenOtroVeterinario", bru.getEnvVar("tokenRecepcionista"));
+  }
+}
+

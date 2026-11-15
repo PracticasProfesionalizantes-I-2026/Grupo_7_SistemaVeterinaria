@@ -3,6 +3,7 @@ using System.Security.Claims;
 using BusinessLogic.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Shared.DTOs.Auth;
 using Shared.Exceptions;
 
@@ -19,6 +20,7 @@ public class AuthController : ControllerBase
         _authService = authService;
     }
 
+    [EnableRateLimiting("AuthPolicy")]
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponseDTO>> Login([FromBody] LoginRequestDTO dto)
     {
@@ -45,6 +47,7 @@ public class AuthController : ControllerBase
         }
     }
 
+    [EnableRateLimiting("AuthPolicy")]
     [HttpPost("cambiar-password-temporal")]
     public async Task<ActionResult<LoginResponseDTO>> CambiarPasswordTemporal([FromBody] CambiarPasswordTemporalDTO dto)
     {

@@ -11,6 +11,7 @@ namespace BusinessLogic.Services;
 public static class VeterinarioLockManager
 {
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> Locks = new();
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> TurnoLocks = new();
 
     /// <summary>
     /// Adquiere el bloqueo exclusivo para el veterinario indicado.
@@ -18,6 +19,17 @@ public static class VeterinarioLockManager
     public static async Task<IDisposable> AdquirirBloqueoAsync(Guid veterinarioId)
     {
         var semaforo = Locks.GetOrAdd(veterinarioId, _ => new SemaphoreSlim(1, 1));
+        await semaforo.WaitAsync();
+        return new LockReleaser(semaforo);
+    }
+
+    /// <summary>
+    /// Adquiere el bloqueo exclusivo para un turno específico, evitando que dos solicitudes
+    /// concurrentes registren más de una atención médica vinculada al mismo turno.
+    /// </summary>
+    public static async Task<IDisposable> AdquirirBloqueoTurnoAsync(Guid turnoId)
+    {
+        var semaforo = TurnoLocks.GetOrAdd(turnoId, _ => new SemaphoreSlim(1, 1));
         await semaforo.WaitAsync();
         return new LockReleaser(semaforo);
     }

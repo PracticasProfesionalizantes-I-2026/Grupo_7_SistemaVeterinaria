@@ -5,6 +5,7 @@ public class AtencionMedica
     public Guid Id { get; set; }
     public Guid MascotaId { get; set; }
     public Guid? VeterinarioId { get; set; }
+    public Guid? TurnoId { get; set; }
     public DateTime Fecha { get; set; } = DateTime.UtcNow;
     public string MotivoConsulta { get; set; } = string.Empty;
     public string Anamnesis { get; set; } = string.Empty;
@@ -35,6 +36,7 @@ public class AtencionMedica
     // Navegación
     public Mascota Mascota { get; set; } = null!;
     public Usuario? Veterinario { get; set; }
+    public Turno? Turno { get; set; }
     public ProcedimientoQuirurgico? ProcedimientoQuirurgico { get; set; }
     public ICollection<PrescripcionMedica> Prescripciones { get; set; } = new List<PrescripcionMedica>();
     public ICollection<EstudioComplementario> EstudiosComplementarios { get; set; } = new List<EstudioComplementario>();

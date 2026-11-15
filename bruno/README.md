@@ -16,9 +16,17 @@ Colección oficial de solicitudes HTTP para [Bruno](https://www.usebruno.com/) a
 - **`auth/`**: Inicio de sesión por rol y email, cuenta temporal, cambio de contraseña temporal (`CU-01`), bloqueo al 5° intento, cierre de sesión idempotente (`CU-09`) y verificación de sesión.
 - **`duenos/`**: Listado, alta (`201`), consulta por ID, actualización con DNI (`BUG-02`), conflicto por DNI duplicado (`RN-05`), restricción de baja con mascotas (`409`) y controles de acceso (`SEC-01`).
 - **`mascotas/`**: Listado general y de activas, alta (`VAL-01`, `VAL-02`, `VAL-07`), modificación incluyendo especie y fecha de nacimiento (`DOC-01`), baja lógica (`RN-07` / `MEJ-03`) y reasignación de dueño (`CU-12`).
-- **`turnos/`**: Agenda de turnos (`CU-05`), disponibilidad horaria profesional (`RN-10`, `SEC-04`, `VAL-08`), alta manual, reprogramación (`BUG-05`) y cancelación (`CU-06`).
-- **`atenciones-medicas/`**: Registro clínico con anamnesis y examen físico obligatorios (`CU-04`, `BUG-03`), vacunación (`RN-03`, `RN-04`, `VAL-06`), alerta de desnutrición (`RN-12`), seguimiento crónico (`RN-11`, `BUG-06`), cirugía/prescripciones/estudios (`CU-13`, `CU-14`), inmutabilidad (`RN-01`) y autorización exclusiva para `Veterinario` (`SEC-02`).
+- **`turnos/`**: Agenda de turnos (`CU-05`), disponibilidad horaria profesional (`RN-10`, `SEC-04`, `VAL-08`), alta manual, reprogramación (`BUG-05`), cancelación (`CU-06`), confirmación de turno pendiente (`18`), inicio de atención (`19`), intento de finalizar sin atención médica vinculada (`20` $\rightarrow$ `409 Conflict`), finalización de turno con atención vinculada (`21` $\rightarrow$ `200 OK`) y validación de autorización exclusiva del veterinario asignado al iniciar o finalizar (`22` y `23` $\rightarrow$ `403 Forbidden`, `RN-09`).
+- **`atenciones-medicas/`**: Registro clínico con anamnesis y examen físico obligatorios (`CU-04`, `BUG-03`), vacunación (`RN-03`, `RN-04`, `VAL-06`), alerta de desnutrición (`RN-12`), seguimiento crónico (`RN-11`, `BUG-06`), cirugía/prescripciones/estudios (`CU-13`, `CU-14`), vinculación opcional `1:1` a turno en estado `EnAtencion` (`15`), atención médica espontánea sin turno (`16`), inmutabilidad (`RN-01`) y autorización exclusiva para `Veterinario` (`SEC-02`).
 - **`historia-clinica/`**: Consulta integral por mascota, búsqueda por criterio (nombre o DNI de dueño) y control de acceso exclusivo para `Veterinario` (`CU-03`, `SEC-02`).
 - **`usuarios/`**: Administración de cuentas, filtros, desbloqueo y restablecimiento de contraseña temporal por el `Administrador` (`CU-10`, `ERR-03`).
 - **`reportes/`**: Generación y consulta de reportes analíticos consolidados y modulares para el `Administrador` (`CU-11`, `VAL-09`).
 
+
+## 3. Notas de Configuración y Ejecución
+
+- **Clave JWT:** antes de iniciar la API debe estar configurada con .NET User Secrets o la variable de entorno `JwtSettings__SecretKey` (ver `README.md`, sección 2.2). La colección no contiene ni requiere claves.
+- **Rate limiting de autenticación:** `login` y `cambiar-password-temporal` admiten por defecto **10 solicitudes por minuto por IP** (`RateLimiting:AuthPermitLimit` / `AuthWindowSeconds` en `API/appsettings.json`). Si al ejecutar la carpeta `auth/` completa se recibe `429 Too Many Requests`, esperar un minuto o elevar temporalmente el límite en la configuración local.
+- **Documentación de la API:** la especificación OpenAPI está en `/openapi/v1.json` (solo `Development`). Scalar no está implementado.
+- **Autorización por rol:** `atenciones-medicas/` e `historia-clinica/` requieren `Veterinario`; `usuarios/` y `reportes/`, `Administrador`; en `turnos/`, un veterinario solo puede operar sobre sus propios turnos (`403` en caso contrario).
+- **Reportes de mascotas:** cuentan las altas con `FechaRegistro` dentro del período; las mascotas históricas con `FechaRegistro = NULL` no se contabilizan.

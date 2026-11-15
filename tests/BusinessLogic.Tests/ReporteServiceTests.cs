@@ -68,7 +68,7 @@ public class ReporteServiceTests
 
         _atencionRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                          .ReturnsAsync(new List<AtencionMedica> { atencion });
-        _mascotaRepoMock.Setup(r => r.GetAllAsync(null))
+        _mascotaRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                         .ReturnsAsync(new List<Mascota> { mascota });
         _duenoRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                       .ReturnsAsync(new List<Dueno> { dueno });
@@ -101,6 +101,49 @@ public class ReporteServiceTests
         Assert.NotNull(result.DatosReporte.Turnos);
 
         _reporteRepoMock.Verify(r => r.CreateAsync(It.IsAny<Reporte>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GenerarReporteAsync_ModuloMascotas_UsaRangoNormalizadoYCalculaSoloSobreMascotasDelPeriodo()
+    {
+        var desde = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var hastaSinHora = new DateTime(2026, 10, 31, 0, 0, 0, DateTimeKind.Utc);
+        var request = new GenerarReporteRequestDTO
+        {
+            Motivo = "Altas de octubre",
+            TiposReporte = new List<string> { "Mascotas" },
+            FechaDesde = desde,
+            FechaHasta = hastaSinHora
+        };
+
+        var mascotas = new List<Mascota>
+        {
+            new() { Id = Guid.NewGuid(), Especie = "Perro", Sexo = "Macho", Activa = true, FechaRegistro = desde.AddDays(2) },
+            new() { Id = Guid.NewGuid(), Especie = "Gato", Sexo = "Hembra", Activa = false, FechaRegistro = desde.AddDays(5) },
+            new() { Id = Guid.NewGuid(), Especie = "Perro", Sexo = "Hembra", Activa = true, FechaRegistro = hastaSinHora.AddHours(23) }
+        };
+
+        DateTime? desdeUsado = null;
+        DateTime? hastaUsado = null;
+        _mascotaRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
+                        .Callback<DateTime, DateTime>((d, h) => { desdeUsado = d; hastaUsado = h; })
+                        .ReturnsAsync(mascotas);
+        _reporteRepoMock.Setup(r => r.CreateAsync(It.IsAny<Reporte>()))
+                        .ReturnsAsync((Reporte r) => { r.Id = Guid.NewGuid(); return r; });
+
+        var result = await _service.GenerarReporteAsync(request, Guid.NewGuid(), "admin");
+
+        Assert.Equal(desde, desdeUsado);
+        Assert.Equal(hastaSinHora.Date.AddDays(1).AddTicks(-1), hastaUsado);
+        Assert.Equal(3, result.TotalMascotas);
+        Assert.NotNull(result.DatosReporte.Mascotas);
+        Assert.Equal(3, result.DatosReporte.Mascotas!.TotalMascotasRegistradas);
+        Assert.Equal(2, result.DatosReporte.Mascotas.TotalActivas);
+        Assert.Equal(1, result.DatosReporte.Mascotas.TotalInactivas);
+        Assert.Equal(2, result.DatosReporte.Mascotas.DistribucionPorEspecie["Perro"]);
+        Assert.Equal(1, result.DatosReporte.Mascotas.DistribucionPorEspecie["Gato"]);
+        Assert.Equal(2, result.DatosReporte.Mascotas.DistribucionPorSexo["Hembra"]);
+        _mascotaRepoMock.Verify(r => r.GetAllAsync(It.IsAny<bool?>()), Times.Never);
     }
 
     [Fact]
@@ -203,7 +246,7 @@ public class ReporteServiceTests
         Assert.Equal(0, result.TotalDuenos);
         Assert.Equal(0, result.TotalTurnos);
 
-        _mascotaRepoMock.Verify(r => r.GetAllAsync(null), Times.Never);
+        _mascotaRepoMock.Verify(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()), Times.Never);
         _duenoRepoMock.Verify(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()), Times.Never);
         _turnoRepoMock.Verify(r => r.GetAgendaAsync(It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), null, null), Times.Never);
     }
@@ -397,7 +440,7 @@ public class ReporteServiceTests
 
         _atencionRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                          .ReturnsAsync(new List<AtencionMedica>());
-        _mascotaRepoMock.Setup(r => r.GetAllAsync(null))
+        _mascotaRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                         .ReturnsAsync(new List<Mascota>());
         _duenoRepoMock.Setup(r => r.GetByRangoFechasAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>()))
                       .ReturnsAsync(new List<Dueno>());

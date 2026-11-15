@@ -28,6 +28,7 @@ Permite al Administrador (dueño/responsable de la veterinaria) generar nuevos r
 1. El Actor envía una petición al endpoint `POST /api/reportes/generar` con un cuerpo JSON que contiene el `motivo`, la lista de `tiposReporte[]` (`Atenciones`, `Vacunaciones`, `Mascotas`, `Duenos`, `Turnos`), `fechaDesde` y `fechaHasta`.
 2. La **Capa de Presentación** (`ReportesController.GenerarReporte`) valida la autorización del rol (`[Authorize(Roles = "Administrador")]`) y valida que los campos requeridos estén presentes en `GenerarReporteRequestDTO`.
 3. La **Capa de Negocio** (`ReporteService.GenerarReporteAsync`) valida que la `fechaDesde` sea menor o igual a la `fechaHasta`, ejecuta las consultas de agregación y cálculo estadístico sobre los repositorios correspondientes, y estructura el resultado.
+   * *Nota (módulo `Mascotas`):* las métricas reflejan las mascotas dadas de alta dentro del período (`Mascota.FechaRegistro` entre `fechaDesde` y `fechaHasta`). Las mascotas históricas con `FechaRegistro` nulo (alta desconocida) no se contabilizan en reportes de altas por período.
 4. La **Capa de Persistencia** guarda el documento consolidado en la tabla `Reportes` con su fecha de generación y usuario solicitante.
 5. El Sistema devuelve un código **201 Created** con el reporte generado (`ReporteResponseDTO`), su identificador y la URL para su posterior consulta o exportación.
 
