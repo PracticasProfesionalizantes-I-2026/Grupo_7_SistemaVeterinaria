@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using DataAccess.Context;
 using DataAccess.Entities;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.DTOs.Auth;
 using Shared.Security;
@@ -712,6 +713,7 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("clave-demasiado-corta-123")]
+    [InlineData("1234567890123456789012345678901")] // 31 bytes UTF-8 (mínimo exigido: 32)
     public void ApplicationStartup_WhenJwtSecretKeyIsMissingOrInvalid_ThrowsInvalidOperationException(string invalidSecretKey)
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -721,6 +723,54 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 builder.UseSetting("JwtSettings:SecretKey", invalidSecretKey);
             });
             using var _ = invalidFactory.CreateClient();
+        });
+
+        Assert.Contains("JwtSettings:SecretKey", ex.Message);
+    }
+
+    [Fact]
+    public void VersionedAppSettingsFiles_DoNotContainHardcodedJwtSecretKey()
+    {
+        var basePath = AppContext.BaseDirectory;
+        var config = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(basePath, "appsettings.json"), optional: false, reloadOnChange: false)
+            .AddJsonFile(Path.Combine(basePath, "appsettings.Development.json"), optional: false, reloadOnChange: false)
+            .Build();
+
+        var secretInVersionedFiles = config["JwtSettings:SecretKey"];
+        Assert.True(
+            string.IsNullOrWhiteSpace(secretInVersionedFiles),
+            "Los archivos versionados appsettings.json y appsettings.Development.json no deben contener una clave secreta JWT.");
+    }
+
+    [Fact]
+    public void ApiAssembly_HasUserSecretsIdAttributeConfigured()
+    {
+        var attribute = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<Microsoft.Extensions.Configuration.UserSecrets.UserSecretsIdAttribute>(typeof(Program).Assembly);
+
+        Assert.NotNull(attribute);
+        Assert.False(string.IsNullOrWhiteSpace(attribute.UserSecretsId));
+    }
+
+    [Fact]
+    public void ApplicationStartup_WithOnlyVersionedJsonFiles_ThrowsInvalidOperationException()
+    {
+        var basePath = AppContext.BaseDirectory;
+        var versionedConfig = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(basePath, "appsettings.json"), optional: false, reloadOnChange: false)
+            .AddJsonFile(Path.Combine(basePath, "appsettings.Development.json"), optional: false, reloadOnChange: false)
+            .Build();
+
+        var secretFromVersionedFiles = versionedConfig["JwtSettings:SecretKey"] ?? string.Empty;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+        {
+            using var rawFactory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("JwtSettings:SecretKey", secretFromVersionedFiles);
+            });
+            using var _ = rawFactory.CreateClient();
         });
 
         Assert.Contains("JwtSettings:SecretKey", ex.Message);
@@ -864,5 +914,128 @@ public class AuthEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var res = await _client.SendAsync(req);
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_WhenRateLimitPerIpIsExceeded_Returns429TooManyRequests()
+    {
+        using var rateLimitedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("RateLimiting:AuthPermitLimit", "3");
+            builder.UseSetting("RateLimiting:AuthWindowSeconds", "60");
+        });
+        using var client = rateLimitedFactory.CreateClient();
+
+        var request = new LoginRequestDTO
+        {
+            UsuarioOEmail = "admin",
+            Password = "Admin1234!"
+        };
+
+        for (int i = 0; i < 3; i++)
+        {
+            var allowedResponse = await client.PostAsJsonAsync("/api/auth/login", request);
+            Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
+        }
+
+        // 4ta solicitud dentro de la misma ventana supera AuthPermitLimit = 3
+        var rejectedResponse = await client.PostAsJsonAsync("/api/auth/login", request);
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
+
+        var body = await rejectedResponse.Content.ReadAsStringAsync();
+        Assert.Contains("Demasiadas solicitudes", body);
+    }
+
+    [Fact]
+    public async Task CambiarPasswordTemporal_WhenRateLimitPerIpIsExceeded_Returns429TooManyRequests()
+    {
+        using var rateLimitedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("RateLimiting:AuthPermitLimit", "2");
+            builder.UseSetting("RateLimiting:AuthWindowSeconds", "60");
+        });
+        using var client = rateLimitedFactory.CreateClient();
+
+        var request = new CambiarPasswordTemporalDTO
+        {
+            UsuarioOEmail = "user.temporal",
+            PasswordActual = "ClaveIncorrecta123!",
+            NuevaPassword = "NuevaPasswordValida123!",
+            ConfirmacionPassword = "NuevaPasswordValida123!"
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            var allowedResponse = await client.PostAsJsonAsync("/api/auth/cambiar-password-temporal", request);
+            Assert.Equal(HttpStatusCode.Unauthorized, allowedResponse.StatusCode);
+        }
+
+        // 3ra solicitud supera AuthPermitLimit = 2
+        var rejectedResponse = await client.PostAsJsonAsync("/api/auth/cambiar-password-temporal", request);
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_WithRateLimitingEnabled_PreservesAccountLockoutOnFifthAttempt_AndReturns429WhenLimitExceeded()
+    {
+        using var rateLimitedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            // Límite de 6 solicitudes por ventana: permite llegar al 5to intento fallido (bloqueo 403)
+            // y rechaza a partir de la 7ma solicitud con 429 Too Many Requests.
+            builder.UseSetting("RateLimiting:AuthPermitLimit", "6");
+            builder.UseSetting("RateLimiting:AuthWindowSeconds", "60");
+        });
+        using var client = rateLimitedFactory.CreateClient();
+
+        var username = "user.ratelimit.lock." + Guid.NewGuid().ToString("N")[..8];
+        using (var scope = rateLimitedFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.Usuarios.Add(new Usuario
+            {
+                Id = Guid.NewGuid(),
+                Username = username,
+                Email = $"{username}@patitas.com",
+                PasswordHash = PasswordHelper.HashPassword("ValidPass123!"),
+                Rol = "Recepcionista",
+                Activo = true,
+                Bloqueado = false,
+                IntentosFallidos = 0
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var failedRequest = new LoginRequestDTO
+        {
+            UsuarioOEmail = username,
+            Password = "WrongPassword999!"
+        };
+
+        // Intentos 1 a 4 -> 401 Unauthorized
+        for (int i = 1; i <= 4; i++)
+        {
+            var res = await client.PostAsJsonAsync("/api/auth/login", failedRequest);
+            Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        }
+
+        // Intento 5 -> 403 Forbidden (cuenta bloqueada efectivamente en BD)
+        var fifthRes = await client.PostAsJsonAsync("/api/auth/login", failedRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, fifthRes.StatusCode);
+
+        using (var scope = rateLimitedFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var usuario = db.Usuarios.First(u => u.Username == username);
+            Assert.True(usuario.Bloqueado);
+            Assert.Equal(5, usuario.IntentosFallidos);
+        }
+
+        // Intento 6 -> 403 Forbidden (aún dentro del límite de 6 peticiones por IP)
+        var sixthRes = await client.PostAsJsonAsync("/api/auth/login", failedRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, sixthRes.StatusCode);
+
+        // Intento 7 -> 429 Too Many Requests (supera el límite de 6 peticiones por IP)
+        var seventhRes = await client.PostAsJsonAsync("/api/auth/login", failedRequest);
+        Assert.Equal(HttpStatusCode.TooManyRequests, seventhRes.StatusCode);
     }
 }

@@ -47,9 +47,9 @@ Grupo_7_SistemaVeterinaria/
 │   │   ├── UsuariosController.cs        # Gestión administrativa de cuentas, desbloqueo y reseteo
 │   │   └── ReportesController.cs        # Generación e historial de reportes modulares
 │   ├── Program.cs                       # Configuración de DI, OpenAPI, JWT, Middleware y DbInitializer
-│   ├── appsettings.json                 # ConnectionStrings para SQLite
-│   ├── appsettings.Development.json     # Clave JWT y configuración para desarrollo local
-│   └── API.csproj
+│   ├── appsettings.json                 # ConnectionStrings y parámetros públicos de configuración
+│   ├── appsettings.Development.json     # Configuración no sensible para desarrollo local
+│   └── API.csproj                       # Proyecto Web con soporte habilitado para .NET User Secrets
 ├── BusinessLogic/                       # Capa de Lógica de Negocio Pura
 │   ├── Interfaces/
 │   │   ├── IAuthService.cs
@@ -106,7 +106,27 @@ Grupo_7_SistemaVeterinaria/
 dotnet build SistemaVeterinaria.slnx
 ```
 
-### 2.2. Ejecutar la API
+### 2.2. Configurar la Clave Secreta JWT (Obligatorio antes de ejecutar)
+
+Por seguridad, el repositorio **no incluye ninguna clave secreta versionada** en [`API/appsettings.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.json) ni en [`API/appsettings.Development.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.Development.json). La aplicación exige una clave secreta (`JwtSettings:SecretKey`) de al menos **32 bytes UTF-8 (256 bits)**; si no está configurada o es más corta, rechaza iniciar (`InvalidOperationException`).
+
+Antes de iniciar la API localmente, configurá tu propia clave secreta eligiendo **una** de las siguientes opciones (reemplazando `<TU_CLAVE_SECRETA_DE_AL_MENOS_32_CARACTERES>` por un valor propio de 32 o más caracteres):
+
+* **Opción A — .NET User Secrets (recomendado para desarrollo local, se ejecuta una sola vez en tu máquina):**
+  ```bash
+  dotnet user-secrets set "JwtSettings:SecretKey" "<TU_CLAVE_SECRETA_DE_AL_MENOS_32_CARACTERES>" --project API/API.csproj
+  ```
+* **Opción B — Variable de entorno en la sesión actual de terminal:**
+  * **PowerShell (Windows):**
+    ```powershell
+    $env:JwtSettings__SecretKey = "<TU_CLAVE_SECRETA_DE_AL_MENOS_32_CARACTERES>"
+    ```
+  * **Bash (Linux / macOS):**
+    ```bash
+    export JwtSettings__SecretKey="<TU_CLAVE_SECRETA_DE_AL_MENOS_32_CARACTERES>"
+    ```
+
+### 2.3. Ejecutar la API
 ```bash
 dotnet run --project API/API.csproj
 ```
@@ -117,17 +137,11 @@ La API se expondrá en los puertos configurados en `API/Properties/launchSetting
 
 Al iniciar, `DbInitializer` crea automáticamente la base de datos SQLite `veterinaria.db` en el directorio de ejecución (si no existe), aplica las migraciones pendientes y precarga datos iniciales de prueba (usuarios con roles, dueños y pacientes clínicos).
 
-> [!WARNING]
-> **Advertencia de Seguridad — Configuración de Clave JWT (`JwtSettings:SecretKey`):**
-> * El archivo base [`API/appsettings.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.json) no contiene claves secretas activas (`"SecretKey": ""`).
-> * El archivo [`API/appsettings.Development.json`](file:///c:/Users/jazvi/OneDrive/Documentos/GitHub/Grupo_7_SistemaVeterinaria/API/appsettings.Development.json) incluye una clave exclusiva para desarrollo local con el único propósito de permitir la ejecución académica inmediata mediante `dotnet run --project API/API.csproj`. **Nunca debe utilizarse ni reutilizarse en entornos de producción.**
-> * En entornos productivos, la aplicación exige obligatoriamente configurar una clave secreta externa de al menos **32 bytes UTF-8 (256 bits)** (e.g. mediante la variable de entorno `JwtSettings__SecretKey`); si la clave está ausente o es inválida, la aplicación rechaza iniciar por seguridad (SEC-05).
-
-### 2.3. Acceso a la Documentación OpenAPI
+### 2.4. Acceso a la Documentación OpenAPI
 En entorno `Development`, la API expone su especificación OpenAPI nativa generada por Microsoft OpenAPI en:
 * **JSON de especificación:** `https://localhost:7207/openapi/v1.json` *(o `http://localhost:5274/openapi/v1.json`)*.
 
-### 2.4. Ejecutar la Suite Completa de Tests
+### 2.5. Ejecutar la Suite Completa de Tests
 ```bash
 dotnet test SistemaVeterinaria.slnx
 ```

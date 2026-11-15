@@ -454,6 +454,226 @@ public class TurnoYAtencionMedicaRepositoryTests : IDisposable
         Assert.Null(mascotaDespuesFallo!.FechaUltimaVisita);
     }
 
+    [Fact]
+    public async Task SetDisponibilidadesAsync_ReemplazaDisponibilidadEnTransaccionAtomica()
+    {
+        var dispRepo = new DisponibilidadVeterinarioRepository(_context);
+
+        var inicial = new List<DisponibilidadVeterinario>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                VeterinarioId = _vetId,
+                DiaSemana = DayOfWeek.Monday,
+                Jornada = "Manana",
+                HoraInicio = TimeSpan.FromHours(8),
+                HoraFin = TimeSpan.FromHours(12),
+                Activo = true
+            }
+        };
+        await dispRepo.SetDisponibilidadesAsync(_vetId, inicial);
+
+        var reemplazo = new List<DisponibilidadVeterinario>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                VeterinarioId = _vetId,
+                DiaSemana = DayOfWeek.Wednesday,
+                Jornada = "Tarde",
+                HoraInicio = TimeSpan.FromHours(14),
+                HoraFin = TimeSpan.FromHours(18),
+                Activo = true
+            },
+            new()
+            {
+                Id = Guid.NewGuid(),
+                VeterinarioId = _vetId,
+                DiaSemana = DayOfWeek.Friday,
+                Jornada = "Manana",
+                HoraInicio = TimeSpan.FromHours(9),
+                HoraFin = TimeSpan.FromHours(13),
+                Activo = true
+            }
+        };
+
+        await dispRepo.SetDisponibilidadesAsync(_vetId, reemplazo);
+
+        var resultado = (await dispRepo.GetByVeterinarioIdAsync(_vetId)).ToList();
+        Assert.Equal(2, resultado.Count);
+        Assert.DoesNotContain(resultado, d => d.DiaSemana == DayOfWeek.Monday);
+        Assert.Contains(resultado, d => d.DiaSemana == DayOfWeek.Wednesday && d.Jornada == "Tarde");
+        Assert.Contains(resultado, d => d.DiaSemana == DayOfWeek.Friday && d.Jornada == "Manana");
+    }
+
+    // --- ETAPA C: PRUEBAS DE RESTRICCIONES ÚNICAS SQLITE ---
+
+    [Theory]
+    [InlineData("Confirmado")]
+    [InlineData("EnAtencion")]
+    [InlineData("Finalizado")]
+    public async Task IndiceUnicoTurnosActivos_RechazaDuplicadosEnEstadosActivos_YPermitePendienteOCancelado(string estadoActivo)
+    {
+        var fechaHora = new DateTime(2026, 12, 10, 10, 0, 0, DateTimeKind.Utc);
+
+        // 1. Se permiten múltiples turnos Pendiente y Cancelado en el mismo horario
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            FechaHora = fechaHora,
+            MotivoConsulta = "Pendiente 1",
+            Estado = "Pendiente"
+        });
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            FechaHora = fechaHora,
+            MotivoConsulta = "Pendiente 2",
+            Estado = "Pendiente"
+        });
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            FechaHora = fechaHora,
+            MotivoConsulta = "Cancelado 1",
+            Estado = "Cancelado"
+        });
+
+        // 2. El primer turno activo en ese horario se persiste sin inconvenientes
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            FechaHora = fechaHora,
+            MotivoConsulta = $"Activo en {estadoActivo}",
+            Estado = estadoActivo
+        });
+
+        // 3. Un segundo turno activo (Confirmado, EnAtencion o Finalizado) para el mismo veterinario y FechaHora viola el índice filtrado SQLite
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            _turnoRepository.CreateAsync(new Turno
+            {
+                MascotaId = _mascotaId,
+                VeterinarioId = _vetId,
+                FechaHora = fechaHora,
+                MotivoConsulta = "Duplicado activo",
+                Estado = "Confirmado"
+            }));
+    }
+
+    [Fact]
+    public async Task IndiceUnicoDisponibilidad_RechazaDuplicadoMismoVeterinarioDiaYJornada()
+    {
+        _context.DisponibilidadesVeterinarios.Add(new DisponibilidadVeterinario
+        {
+            Id = Guid.NewGuid(),
+            VeterinarioId = _vetId,
+            DiaSemana = DayOfWeek.Tuesday,
+            Jornada = "Manana",
+            HoraInicio = TimeSpan.FromHours(8),
+            HoraFin = TimeSpan.FromHours(10),
+            Activo = true
+        });
+        await _context.SaveChangesAsync();
+
+        _context.DisponibilidadesVeterinarios.Add(new DisponibilidadVeterinario
+        {
+            Id = Guid.NewGuid(),
+            VeterinarioId = _vetId,
+            DiaSemana = DayOfWeek.Tuesday,
+            Jornada = "Manana",
+            HoraInicio = TimeSpan.FromHours(10),
+            HoraFin = TimeSpan.FromHours(12),
+            Activo = true
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task IndiceUnicoSeguimientoCronico_RechazaDuplicadoMismaAtencionYFechaHora_YPermiteCanceladoONulo()
+    {
+        var atencion = await _atencionRepository.CreateAsync(new AtencionMedica
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            Fecha = DateTime.UtcNow,
+            MotivoConsulta = "Consulta crónica base",
+            Anamnesis = "Anamnesis",
+            ExamenFisico = "Examen",
+            Diagnostico = "Crónico",
+            Tratamiento = "Control",
+            PesoRegistrado = 14m,
+            EsAptoVacunacion = true
+        });
+
+        var fechaSeguimiento = new DateTime(2027, 1, 15, 9, 30, 0, DateTimeKind.Utc);
+
+        // 1. Se permiten múltiples turnos manuales con AtencionMedicaId == null en la misma FechaHora (si son Pendiente/Cancelado)
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            AtencionMedicaId = null,
+            FechaHora = fechaSeguimiento,
+            MotivoConsulta = "Sin atención vinculada 1",
+            Estado = "Pendiente"
+        });
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            AtencionMedicaId = null,
+            FechaHora = fechaSeguimiento,
+            MotivoConsulta = "Sin atención vinculada 2",
+            Estado = "Pendiente"
+        });
+
+        // 2. Se permite un turno Cancelado con el mismo (AtencionMedicaId, FechaHora)
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            AtencionMedicaId = atencion.Id,
+            FechaHora = fechaSeguimiento,
+            MotivoConsulta = "Seguimiento cancelado previo",
+            Estado = "Cancelado",
+            EsAutomatico = true,
+            TipoOrigen = "Cronico"
+        });
+
+        // 3. El primer seguimiento activo (Pendiente) para (AtencionMedicaId, FechaHora) se guarda con éxito
+        await _turnoRepository.CreateAsync(new Turno
+        {
+            MascotaId = _mascotaId,
+            VeterinarioId = _vetId,
+            AtencionMedicaId = atencion.Id,
+            FechaHora = fechaSeguimiento,
+            MotivoConsulta = "Seguimiento activo 1",
+            Estado = "Pendiente",
+            EsAutomatico = true,
+            TipoOrigen = "Cronico"
+        });
+
+        // 4. Un segundo seguimiento no cancelado con el mismo (AtencionMedicaId, FechaHora) es rechazado por SQLite
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            _turnoRepository.CreateAsync(new Turno
+            {
+                MascotaId = _mascotaId,
+                VeterinarioId = _vetId,
+                AtencionMedicaId = atencion.Id,
+                FechaHora = fechaSeguimiento,
+                MotivoConsulta = "Seguimiento duplicado",
+                Estado = "Pendiente",
+                EsAutomatico = true,
+                TipoOrigen = "Cronico"
+            }));
+    }
+
     public void Dispose()
     {
         _context.Dispose();

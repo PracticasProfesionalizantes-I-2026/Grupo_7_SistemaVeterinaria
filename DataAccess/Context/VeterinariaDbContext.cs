@@ -238,8 +238,13 @@ public class VeterinariaDbContext : DbContext
             entity.Property(t => t.UsuarioCancelacionUsername).HasMaxLength(50);
             entity.Property(t => t.FechaCreacion).IsRequired();
 
-            entity.HasIndex(t => new { t.VeterinarioId, t.FechaHora });
+            entity.HasIndex(t => new { t.VeterinarioId, t.FechaHora })
+                  .IsUnique()
+                  .HasFilter("Estado IN ('Confirmado', 'EnAtencion', 'Finalizado')");
             entity.HasIndex(t => t.AtencionMedicaId);
+            entity.HasIndex(t => new { t.AtencionMedicaId, t.FechaHora })
+                  .IsUnique()
+                  .HasFilter("AtencionMedicaId IS NOT NULL AND Estado <> 'Cancelado'");
 
             entity.HasOne(t => t.Mascota)
                   .WithMany()
@@ -268,7 +273,8 @@ public class VeterinariaDbContext : DbContext
             entity.Property(d => d.HoraFin).IsRequired();
             entity.Property(d => d.Activo).IsRequired().HasDefaultValue(true);
 
-            entity.HasIndex(d => new { d.VeterinarioId, d.DiaSemana, d.Jornada });
+            entity.HasIndex(d => new { d.VeterinarioId, d.DiaSemana, d.Jornada })
+                  .IsUnique();
 
             entity.HasOne(d => d.Veterinario)
                   .WithMany()

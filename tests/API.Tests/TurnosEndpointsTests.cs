@@ -49,6 +49,20 @@ public class TurnosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         return Guid.Parse(idClaim);
     }
 
+    private async Task<string> ObtenerTokenAsync(string username, string password)
+    {
+        using var client = _factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequestDTO
+        {
+            UsuarioOEmail = username,
+            Password = password
+        });
+        response.EnsureSuccessStatusCode();
+        var auth = await response.Content.ReadFromJsonAsync<LoginResponseDTO>();
+        Assert.NotNull(auth?.Token);
+        return auth.Token;
+    }
+
     private async Task<Usuario> EnsureSecondVeterinarioAsync()
     {
         using var scope = _factory.Services.CreateScope();
@@ -1472,6 +1486,14 @@ public class TurnosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
 
         var turnoId = Guid.NewGuid();
         var inicioPrevio = estadoInicial == "EnAtencion" ? DateTime.UtcNow.AddMinutes(-10) : (DateTime?)null;
+        var horaSegunEstado = estadoInicial switch
+        {
+            "Pendiente" => 14,
+            "EnAtencion" => 15,
+            "Cancelado" => 16,
+            "Finalizado" => 17,
+            _ => 18
+        };
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -1481,7 +1503,7 @@ public class TurnosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
                 Id = turnoId,
                 MascotaId = mascotaId,
                 VeterinarioId = vetCarlosId,
-                FechaHora = DateTime.UtcNow.AddDays(9).Date.AddHours(10),
+                FechaHora = DateTime.UtcNow.AddDays(9).Date.AddHours(horaSegunEstado),
                 MotivoConsulta = "Prueba de estado inválido para iniciar",
                 Estado = estadoInicial,
                 FechaHoraInicioAtencion = inicioPrevio
@@ -1953,5 +1975,287 @@ public class TurnosEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         var cancelado = await resPropio.Content.ReadFromJsonAsync<TurnoResponseDTO>();
         Assert.NotNull(cancelado);
         Assert.Equal("Cancelado", cancelado.Estado);
+    }
+
+    [Fact]
+    public async Task Concurrencia_ReservasYConfirmacionesSimultaneasMismoHorario_UnoSoloTieneExitoSinDuplicadosNiErrores500()
+    {
+        var vetCarlosId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+        var tokenRecep = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+
+        var dispCompleta = Enum.GetValues<DayOfWeek>().Select(dia => new DisponibilidadVeterinarioDTO
+        {
+            DiaSemana = dia,
+            Jornada = "Manana",
+            HoraInicio = new TimeSpan(8, 0, 0),
+            HoraFin = new TimeSpan(12, 0, 0)
+        }).ToList();
+
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetCarlosId}", new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = dispCompleta
+        });
+
+        var mascotaId = (await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas"))!.First(m => m.Activa).Id;
+        var fechaObjetivo = DateTime.UtcNow.Date.AddDays(28).AddHours(10);
+
+        // Sembrar 3 turnos Pendiente en el mismo horario para competir con 3 creaciones manuales simultáneas
+        var turnosPendientesIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            foreach (var tId in turnosPendientesIds)
+            {
+                db.Turnos.Add(new Turno
+                {
+                    Id = tId,
+                    MascotaId = mascotaId,
+                    VeterinarioId = vetCarlosId,
+                    FechaHora = fechaObjetivo,
+                    MotivoConsulta = "Turno pendiente concurrente",
+                    Estado = "Pendiente",
+                    EsAutomatico = true,
+                    TipoOrigen = "SeguimientoCronico",
+                    FechaCreacion = DateTime.UtcNow
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+
+        // Preparar 6 tareas concurrentes (3 POST /api/turnos + 3 POST /api/turnos/{id}/confirmar)
+        var tareas = new List<Task<HttpResponseMessage>>();
+
+        for (int i = 0; i < 3; i++)
+        {
+            tareas.Add(Task.Run(async () =>
+            {
+                using var client = _factory.CreateClient();
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenRecep);
+                return await client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+                {
+                    MascotaId = mascotaId,
+                    VeterinarioId = vetCarlosId,
+                    FechaHora = fechaObjetivo,
+                    MotivoConsulta = $"Reserva manual concurrente {i}"
+                });
+            }));
+        }
+
+        foreach (var pendienteId in turnosPendientesIds)
+        {
+            tareas.Add(Task.Run(async () =>
+            {
+                using var client = _factory.CreateClient();
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenRecep);
+                return await client.PostAsync($"/api/turnos/{pendienteId}/confirmar", null);
+            }));
+        }
+
+        var respuestas = await Task.WhenAll(tareas);
+
+        // Ninguna respuesta debe ser 500 Internal Server Error
+        Assert.DoesNotContain(respuestas, r => (int)r.StatusCode >= 500);
+
+        // Exactamente 1 operación debe ganar el horario (201 Created o 200 OK) y las 5 restantes recibir 409 Conflict
+        var exitosas = respuestas.Count(r => r.StatusCode == HttpStatusCode.Created || r.StatusCode == HttpStatusCode.OK);
+        var conflictos = respuestas.Count(r => r.StatusCode == HttpStatusCode.Conflict);
+
+        Assert.Equal(1, exitosas);
+        Assert.Equal(5, conflictos);
+
+        // Verificar en SQLite que existe exactamente 1 turno Confirmado en ese horario
+        using (var scopeCheck = _factory.Services.CreateScope())
+        {
+            var db = scopeCheck.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var confirmadosEnSlot = await db.Turnos.CountAsync(t =>
+                t.VeterinarioId == vetCarlosId &&
+                t.FechaHora == fechaObjetivo &&
+                (t.Estado == "Confirmado" || t.Estado == "EnAtencion" || t.Estado == "Finalizado"));
+
+            Assert.Equal(1, confirmadosEnSlot);
+        }
+    }
+
+    [Fact]
+    public async Task Concurrencia_GeneracionSeguimientoCronicoMismaAtencion_UnaSolaSeriePersistidaSinDuplicados()
+    {
+        var vetCarlosId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+        var dispCompleta = Enum.GetValues<DayOfWeek>().Select(dia => new DisponibilidadVeterinarioDTO
+        {
+            DiaSemana = dia,
+            Jornada = "Manana",
+            HoraInicio = new TimeSpan(8, 0, 0),
+            HoraFin = new TimeSpan(12, 0, 0)
+        }).ToList();
+
+        await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetCarlosId}", new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = dispCompleta
+        });
+
+        var mascotaId = (await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas"))!.First(m => m.Activa).Id;
+        var atencionId = Guid.NewGuid();
+
+        using (var scopeSeed = _factory.Services.CreateScope())
+        {
+            var db = scopeSeed.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            db.AtencionesMedicas.Add(new AtencionMedica
+            {
+                Id = atencionId,
+                MascotaId = mascotaId,
+                VeterinarioId = vetCarlosId,
+                Fecha = DateTime.UtcNow,
+                MotivoConsulta = "Control crónico concurrente",
+                Anamnesis = "Anamnesis de prueba",
+                ExamenFisico = "Examen físico normal",
+                Diagnostico = "Hipotiroidismo canino",
+                Tratamiento = "Levotiroxina",
+                PesoRegistrado = 18.0m,
+                EsAptoVacunacion = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var dto = new GenerarTurnosCronicosDTO
+        {
+            MascotaId = mascotaId,
+            VeterinarioId = vetCarlosId,
+            AtencionMedicaId = atencionId,
+            FechaAtencion = DateTime.UtcNow.Date.AddDays(30),
+            Frecuencia = "Mensual",
+            JornadaPreferida = "Manana"
+        };
+
+        // Lanzar 4 generaciones concurrentes en scopes independientes sobre SQLite para la misma AtencionMedicaId
+        var tareas = Enumerable.Range(0, 4).Select(_ => Task.Run(async () =>
+        {
+            using var scope = _factory.Services.CreateScope();
+            var turnoService = scope.ServiceProvider.GetRequiredService<BusinessLogic.Interfaces.ITurnoService>();
+            return await turnoService.GenerarTurnosSeguimientoCronicoAsync(dto);
+        })).ToArray();
+
+        var resultados = await Task.WhenAll(
+            tareas.Select(t => t.ContinueWith(task => (
+                Exito: task.IsCompletedSuccessfully,
+                Excepcion: task.Exception?.InnerException
+            )))
+        );
+
+        Assert.Equal(1, resultados.Count(r => r.Exito));
+        Assert.Equal(3, resultados.Count(r => r.Excepcion is Shared.Exceptions.SeguimientoCronicoDuplicadoException));
+
+        // Verificar en SQLite que solo se persistió 1 serie (6 turnos mensuales) y no hay duplicados
+        using (var scopeCheck = _factory.Services.CreateScope())
+        {
+            var db = scopeCheck.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var turnosCronicos = await db.Turnos
+                .Where(t => t.AtencionMedicaId == atencionId)
+                .ToListAsync();
+
+            Assert.Equal(6, turnosCronicos.Count);
+            Assert.Equal(6, turnosCronicos.Select(t => t.FechaHora).Distinct().Count());
+        }
+    }
+
+    [Fact]
+    public async Task Concurrencia_ReemplazosSimultaneosDisponibilidadMismoVeterinario_SinErrores500NiDuplicados()
+    {
+        var vetCarlosId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+        var tokenRecep = await ObtenerTokenAsync("recep.ana", "Recep1234!");
+
+        var configA = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = new TimeSpan(8, 0, 0), HoraFin = new TimeSpan(12, 0, 0) },
+                new() { DiaSemana = DayOfWeek.Wednesday, Jornada = "Manana", HoraInicio = new TimeSpan(8, 0, 0), HoraFin = new TimeSpan(12, 0, 0) }
+            }
+        };
+
+        var configB = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Tuesday, Jornada = "Tarde", HoraInicio = new TimeSpan(14, 0, 0), HoraFin = new TimeSpan(18, 0, 0) },
+                new() { DiaSemana = DayOfWeek.Thursday, Jornada = "Tarde", HoraInicio = new TimeSpan(14, 0, 0), HoraFin = new TimeSpan(18, 0, 0) },
+                new() { DiaSemana = DayOfWeek.Friday, Jornada = "Tarde", HoraInicio = new TimeSpan(14, 0, 0), HoraFin = new TimeSpan(18, 0, 0) }
+            }
+        };
+
+        // Ejecutar 6 reemplazos simultáneos (3 con configA y 3 con configB)
+        var tareas = Enumerable.Range(0, 6).Select(i => Task.Run(async () =>
+        {
+            using var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenRecep);
+            var payload = i % 2 == 0 ? configA : configB;
+            return await client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetCarlosId}", payload);
+        })).ToArray();
+
+        var respuestas = await Task.WhenAll(tareas);
+
+        // Ninguna solicitud debe arrojar 500 Internal Server Error (DbUpdateConcurrencyException)
+        Assert.All(respuestas, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+
+        // Verificar que la base de datos SQLite haya quedado en un estado consistente (exactamente configA o configB, sin mezcla ni duplicados)
+        using (var scopeCheck = _factory.Services.CreateScope())
+        {
+            var db = scopeCheck.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
+            var vigentes = await db.DisponibilidadesVeterinarios
+                .Where(d => d.VeterinarioId == vetCarlosId && d.Activo)
+                .ToListAsync();
+
+            Assert.True(vigentes.Count == 2 || vigentes.Count == 3);
+            Assert.Equal(vigentes.Count, vigentes.Select(d => (d.DiaSemana, d.Jornada)).Distinct().Count());
+        }
+
+        // Restaurar disponibilidad completa de lunes a domingo para no afectar pruebas posteriores y verificar regla RN-10
+        var dispRestaurada = Enum.GetValues<DayOfWeek>().Select(dia => new DisponibilidadVeterinarioDTO
+        {
+            DiaSemana = dia,
+            Jornada = "Manana",
+            HoraInicio = new TimeSpan(8, 0, 0),
+            HoraFin = new TimeSpan(12, 0, 0)
+        }).ToList();
+
+        var resRestaurar = await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetCarlosId}", new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = dispRestaurada
+        });
+        Assert.Equal(HttpStatusCode.OK, resRestaurar.StatusCode);
+
+        // Verificar conservación de regla RN-10: intento de reservar fuera de horario (19:00) devuelve 409 Conflict
+        var mascotaId = (await _client.GetFromJsonAsync<List<MascotaResponseDTO>>("/api/mascotas"))!.First(m => m.Activa).Id;
+        var resFueraHorario = await _client.PostAsJsonAsync("/api/turnos", new TurnoCreateDTO
+        {
+            MascotaId = mascotaId,
+            VeterinarioId = vetCarlosId,
+            FechaHora = DateTime.UtcNow.Date.AddDays(29).AddHours(19),
+            MotivoConsulta = "Fuera de horario tras reemplazo concurrente"
+        });
+        Assert.Equal(HttpStatusCode.Conflict, resFueraHorario.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConfigurarDisponibilidad_ConDiaYJornadaDuplicados_Retorna409Conflict()
+    {
+        var vetCarlosId = await LoginAndSetHeaderAsync("vet.carlos", "Vet1234!");
+
+        var dtoDuplicado = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetCarlosId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = new TimeSpan(8, 0, 0), HoraFin = new TimeSpan(10, 0, 0) },
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = new TimeSpan(10, 0, 0), HoraFin = new TimeSpan(12, 0, 0) }
+            }
+        };
+
+        var response = await _client.PutAsJsonAsync($"/api/turnos/disponibilidad/{vetCarlosId}", dtoDuplicado);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }

@@ -2132,4 +2132,278 @@ public class TurnoServiceTests
         Assert.Null(turno.FechaCancelacion);
         _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
     }
+
+    [Fact]
+    public async Task ConfigurarDisponibilidadVeterinarioAsync_Concurrencia_SincronizaReemplazoPorVeterinario()
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var ejecucionesEnCurso = 0;
+        var maximoConcurrenteDetectado = 0;
+
+        _disponibilidadRepoMock
+            .Setup(r => r.SetDisponibilidadesAsync(vetId, It.IsAny<IEnumerable<DisponibilidadVeterinario>>()))
+            .Returns(async () =>
+            {
+                var actual = Interlocked.Increment(ref ejecucionesEnCurso);
+                int maxPrevio;
+                do
+                {
+                    maxPrevio = maximoConcurrenteDetectado;
+                    if (actual <= maxPrevio) break;
+                } while (Interlocked.CompareExchange(ref maximoConcurrenteDetectado, actual, maxPrevio) != maxPrevio);
+
+                await Task.Delay(40);
+                Interlocked.Decrement(ref ejecucionesEnCurso);
+            });
+
+        var dto1 = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = TimeSpan.FromHours(8), HoraFin = TimeSpan.FromHours(12) }
+            }
+        };
+
+        var dto2 = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Tuesday, Jornada = "Tarde", HoraInicio = TimeSpan.FromHours(14), HoraFin = TimeSpan.FromHours(18) }
+            }
+        };
+
+        await Task.WhenAll(
+            Task.Run(() => _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto1)),
+            Task.Run(() => _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto2))
+        );
+
+        Assert.Equal(1, maximoConcurrenteDetectado);
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(vetId, It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task GenerarTurnosSeguimientoCronicoAsync_ConcurrenciaMismaAtencionMedica_SoloPermiteUnaSerieYLanzaExcepcionEnLaSegunda()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var atencionId = Guid.NewGuid();
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true, DuenoId = Guid.NewGuid() };
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(mascota);
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var seguimientoPersistido = false;
+        _turnoRepoMock
+            .Setup(r => r.ExisteSeguimientoParaAtencionAsync(atencionId))
+            .ReturnsAsync(() => seguimientoPersistido);
+
+        _disponibilidadRepoMock
+            .Setup(r => r.GetByVeterinarioIdAsync(vetId))
+            .ReturnsAsync(new List<DisponibilidadVeterinario>
+            {
+                new()
+                {
+                    Id = Guid.NewGuid(),
+                    VeterinarioId = vetId,
+                    DiaSemana = DayOfWeek.Monday,
+                    Jornada = "Manana",
+                    HoraInicio = TimeSpan.FromHours(9),
+                    HoraFin = TimeSpan.FromHours(12),
+                    Activo = true
+                }
+            });
+
+        _turnoRepoMock
+            .Setup(r => r.ExisteSuperposicionAsync(vetId, It.IsAny<DateTime>(), null))
+            .ReturnsAsync(false);
+
+        _turnoRepoMock
+            .Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<Turno>>()))
+            .Returns(async () =>
+            {
+                await Task.Delay(30);
+                seguimientoPersistido = true;
+            });
+
+        var dto = new GenerarTurnosCronicosDTO
+        {
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            AtencionMedicaId = atencionId,
+            FechaAtencion = DateTime.UtcNow,
+            Frecuencia = "Mensual",
+            JornadaPreferida = "Manana"
+        };
+
+        var t1 = Task.Run(() => _service.GenerarTurnosSeguimientoCronicoAsync(dto));
+        var t2 = Task.Run(() => _service.GenerarTurnosSeguimientoCronicoAsync(dto));
+
+        var resultados = await Task.WhenAll(
+            t1.ContinueWith(t => (Exito: t.IsCompletedSuccessfully, Ex: t.Exception?.InnerException)),
+            t2.ContinueWith(t => (Exito: t.IsCompletedSuccessfully, Ex: t.Exception?.InnerException))
+        );
+
+        Assert.Equal(1, resultados.Count(r => r.Exito));
+        Assert.Equal(1, resultados.Count(r => r.Ex is SeguimientoCronicoDuplicadoException));
+        _turnoRepoMock.Verify(r => r.CreateRangeAsync(It.IsAny<IEnumerable<Turno>>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CuandoOtroHiloCambiaVeterinarioIdAntesDeAdquirirBloqueo_ReintentaYValidaConElVeterinarioActual()
+    {
+        var turnoId = Guid.NewGuid();
+        var mascotaId = Guid.NewGuid();
+        var vetInicialId = Guid.NewGuid();
+        var vetReasignadoConcurrenteId = Guid.NewGuid();
+        var fechaOriginal = DateTime.UtcNow.AddDays(2).Date.AddHours(9);
+        var nuevaFecha = DateTime.UtcNow.AddDays(3).Date.AddHours(10);
+
+        var mascota = new Mascota { Id = mascotaId, Nombre = "Milo", Activa = true };
+        var turno = new Turno
+        {
+            Id = turnoId,
+            MascotaId = mascotaId,
+            Mascota = mascota,
+            VeterinarioId = vetInicialId,
+            FechaHora = fechaOriginal,
+            MotivoConsulta = "Control inicial",
+            Estado = "Confirmado"
+        };
+
+        var dto = new TurnoUpdateDTO
+        {
+            FechaHora = nuevaFecha,
+            VeterinarioId = vetInicialId,
+            MotivoConsulta = "Intento de vetInicial tras reasignación concurrente"
+        };
+
+        var llamadasReload = 0;
+        _turnoRepoMock.Setup(r => r.GetByIdTrackedAsync(turnoId)).ReturnsAsync(turno);
+        _turnoRepoMock
+            .Setup(r => r.ReloadAsync(turno))
+            .Callback(() =>
+            {
+                llamadasReload++;
+                if (llamadasReload == 1)
+                {
+                    // Simula que otra operación concurrente reasignó el turno a otro veterinario antes del primer lock
+                    turno.VeterinarioId = vetReasignadoConcurrenteId;
+                }
+            })
+            .Returns(Task.CompletedTask);
+
+        // Act & Assert: vetInicialId ya no es dueño del turno tras el ReloadAsync y el reintento bajo el nuevo lock lo rechaza con 403
+        await Assert.ThrowsAsync<TurnoVeterinarioNoAutorizadoException>(() =>
+            _service.UpdateAsync(turnoId, dto, vetInicialId, "Veterinario"));
+
+        Assert.Equal(2, llamadasReload);
+        _turnoRepoMock.Verify(r => r.UpdateAsync(It.IsAny<Turno>()), Times.Never);
+    }
+
+    // --- ETAPA C: VALIDACIÓN DE DUPLICADOS Y TRADUCCIÓN DE RESTRICCIONES ÚNICAS A 409 ---
+
+    [Fact]
+    public async Task ConfigurarDisponibilidad_MismoDiaYJornadaDuplicadosSinSuperposicionHoraria_LanzaDisponibilidadInvalidaException()
+    {
+        var vetId = Guid.NewGuid();
+        var vet = new Usuario { Id = vetId, Username = "vet.carlos", Rol = "Veterinario", Activo = true };
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(vet);
+
+        var dto = new ConfigurarDisponibilidadDTO
+        {
+            VeterinarioId = vetId,
+            Disponibilidades = new List<DisponibilidadVeterinarioDTO>
+            {
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = TimeSpan.FromHours(8), HoraFin = TimeSpan.FromHours(10) },
+                new() { DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = TimeSpan.FromHours(10), HoraFin = TimeSpan.FromHours(12) }
+            }
+        };
+
+        await Assert.ThrowsAsync<DisponibilidadInvalidaException>(() =>
+            _service.ConfigurarDisponibilidadVeterinarioAsync(vetId, dto));
+
+        _disponibilidadRepoMock.Verify(
+            r => r.SetDisponibilidadesAsync(It.IsAny<Guid>(), It.IsAny<IEnumerable<DisponibilidadVeterinario>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateManualAsync_CuandoOcurreViolacionUnicidadEnBaseDeDatos_TraduceAHorarioNoDisponibleException()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var fecha = DateTime.UtcNow.AddDays(2).Date.AddHours(9);
+        var dto = new TurnoCreateDTO
+        {
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            FechaHora = fecha,
+            MotivoConsulta = "Control"
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(new Mascota { Id = mascotaId, Activa = true });
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(new Usuario { Id = vetId, Rol = "Veterinario", Activo = true });
+        _disponibilidadRepoMock.Setup(r => r.EstaDentroDeDisponibilidadAsync(vetId, fecha, 30)).ReturnsAsync(true);
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, fecha, null)).ReturnsAsync(false);
+        _turnoRepoMock
+            .Setup(r => r.CreateAsync(It.IsAny<Turno>()))
+            .ThrowsAsync(new Microsoft.EntityFrameworkCore.DbUpdateException(
+                "Error al guardar",
+                new Exception("SQLite Error 19: 'UNIQUE constraint failed: Turnos.VeterinarioId, Turnos.FechaHora'.")));
+
+        await Assert.ThrowsAsync<HorarioNoDisponibleException>(() =>
+            _service.CreateManualAsync(dto, vetId, "Veterinario"));
+    }
+
+    [Fact]
+    public async Task GenerarTurnosSeguimientoCronicoAsync_CuandoOcurreViolacionUnicidadEnBaseDeDatos_TraduceASeguimientoCronicoDuplicadoException_YNoTraduceOtrosErrores()
+    {
+        var mascotaId = Guid.NewGuid();
+        var vetId = Guid.NewGuid();
+        var atencionId = Guid.NewGuid();
+        var dto = new GenerarTurnosCronicosDTO
+        {
+            MascotaId = mascotaId,
+            VeterinarioId = vetId,
+            AtencionMedicaId = atencionId,
+            FechaAtencion = DateTime.UtcNow,
+            Frecuencia = "Mensual",
+            JornadaPreferida = "Manana"
+        };
+
+        _mascotaRepoMock.Setup(r => r.GetByIdAsync(mascotaId)).ReturnsAsync(new Mascota { Id = mascotaId, Activa = true });
+        _usuarioRepoMock.Setup(r => r.GetByIdAsync(vetId)).ReturnsAsync(new Usuario { Id = vetId, Rol = "Veterinario", Activo = true });
+        _turnoRepoMock.Setup(r => r.ExisteSeguimientoParaAtencionAsync(atencionId)).ReturnsAsync(false);
+        _disponibilidadRepoMock.Setup(r => r.GetByVeterinarioIdAsync(vetId)).ReturnsAsync(new List<DisponibilidadVeterinario>
+        {
+            new() { VeterinarioId = vetId, DiaSemana = DayOfWeek.Monday, Jornada = "Manana", HoraInicio = TimeSpan.FromHours(9), HoraFin = TimeSpan.FromHours(12), Activo = true }
+        });
+        _turnoRepoMock.Setup(r => r.ExisteSuperposicionAsync(vetId, It.IsAny<DateTime>(), null)).ReturnsAsync(false);
+
+        // 1. Violación de unicidad en AtencionMedicaId, FechaHora se traduce a SeguimientoCronicoDuplicadoException (409)
+        _turnoRepoMock
+            .Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<Turno>>()))
+            .ThrowsAsync(new Microsoft.EntityFrameworkCore.DbUpdateException(
+                "Error",
+                new Exception("SQLite Error 19: 'UNIQUE constraint failed: Turnos.AtencionMedicaId, Turnos.FechaHora'.")));
+
+        await Assert.ThrowsAsync<SeguimientoCronicoDuplicadoException>(() =>
+            _service.GenerarTurnosSeguimientoCronicoAsync(dto));
+
+        // 2. Una DbUpdateException genérica no relacionada con unicidad NO debe traducirse a 409
+        _turnoRepoMock
+            .Setup(r => r.CreateRangeAsync(It.IsAny<IEnumerable<Turno>>()))
+            .ThrowsAsync(new Microsoft.EntityFrameworkCore.DbUpdateException("Falla técnica de conexión", new Exception("Disk I/O error")));
+
+        await Assert.ThrowsAsync<Microsoft.EntityFrameworkCore.DbUpdateException>(() =>
+            _service.GenerarTurnosSeguimientoCronicoAsync(dto));
+    }
 }

@@ -1698,6 +1698,14 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
         Guid vetCarlosId;
         Guid mascotaId;
         var turnoId = Guid.NewGuid();
+        var horaSegunEstado = estadoTurno switch
+        {
+            "Pendiente" => 12,
+            "Confirmado" => 13,
+            "Cancelado" => 14,
+            "Finalizado" => 15,
+            _ => 16
+        };
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<VeterinariaDbContext>();
@@ -1711,7 +1719,7 @@ public class AtencionesMedicasEndpointsTests : IClassFixture<CustomWebApplicatio
                 Id = turnoId,
                 MascotaId = mascotaId,
                 VeterinarioId = vetCarlosId,
-                FechaHora = DateTime.UtcNow.AddDays(6).Date.AddHours(10),
+                FechaHora = DateTime.UtcNow.AddDays(6).Date.AddHours(horaSegunEstado),
                 MotivoConsulta = "Turno en estado no válido para vincular",
                 Estado = estadoTurno
             });

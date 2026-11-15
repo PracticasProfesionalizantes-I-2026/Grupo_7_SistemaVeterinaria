@@ -42,24 +42,55 @@ public class DisponibilidadVeterinarioRepository : IDisponibilidadVeterinarioRep
 
     public async Task SetDisponibilidadesAsync(Guid veterinarioId, IEnumerable<DisponibilidadVeterinario> disponibilidades)
     {
-        var existentes = await _context.DisponibilidadesVeterinarios
-            .Where(d => d.VeterinarioId == veterinarioId)
-            .ToListAsync();
+        var ownTransaction = _context.Database.CurrentTransaction == null
+            ? await _context.Database.BeginTransactionAsync()
+            : null;
 
-        _context.DisponibilidadesVeterinarios.RemoveRange(existentes);
-
-        foreach (var item in disponibilidades)
+        try
         {
-            if (item.Id == Guid.Empty)
-            {
-                item.Id = Guid.NewGuid();
-            }
-            item.VeterinarioId = veterinarioId;
-            item.Activo = true;
-        }
+            var existentes = await _context.DisponibilidadesVeterinarios
+                .Where(d => d.VeterinarioId == veterinarioId)
+                .ToListAsync();
 
-        await _context.DisponibilidadesVeterinarios.AddRangeAsync(disponibilidades);
-        await _context.SaveChangesAsync();
+            if (existentes.Count > 0)
+            {
+                _context.DisponibilidadesVeterinarios.RemoveRange(existentes);
+                await _context.SaveChangesAsync();
+            }
+
+            foreach (var item in disponibilidades)
+            {
+                if (item.Id == Guid.Empty)
+                {
+                    item.Id = Guid.NewGuid();
+                }
+                item.VeterinarioId = veterinarioId;
+                item.Activo = true;
+            }
+
+            await _context.DisponibilidadesVeterinarios.AddRangeAsync(disponibilidades);
+            await _context.SaveChangesAsync();
+
+            if (ownTransaction != null)
+            {
+                await ownTransaction.CommitAsync();
+            }
+        }
+        catch
+        {
+            if (ownTransaction != null)
+            {
+                await ownTransaction.RollbackAsync();
+            }
+            throw;
+        }
+        finally
+        {
+            if (ownTransaction != null)
+            {
+                await ownTransaction.DisposeAsync();
+            }
+        }
     }
 
     public async Task<bool> EstaDentroDeDisponibilidadAsync(Guid veterinarioId, DateTime fechaHora, int duracionMinutos = 30)

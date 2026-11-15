@@ -1,6 +1,7 @@
 using BusinessLogic.Interfaces;
 using DataAccess.Entities;
 using DataAccess.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Shared.DTOs.Turno;
 using Shared.Exceptions;
 
@@ -113,51 +114,52 @@ public class TurnoService : ITurnoService
         // 0. Validar autorización horizontal cuando opera un Veterinario
         ValidarAutorizacionOperacionTurno(dto.VeterinarioId, usuarioId, rolUsuario);
 
-        // 1. Validar Mascota existente y activa
-        var mascota = await _mascotaRepository.GetByIdAsync(dto.MascotaId);
-        if (mascota == null)
-        {
-            throw new MascotaNotFoundException(dto.MascotaId);
-        }
-
-        if (!mascota.Activa)
-        {
-            throw new MascotaInactivaException(dto.MascotaId);
-        }
-
-        // 2. Validar Veterinario habilitado
-        var veterinario = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId);
-        if (veterinario == null || veterinario.Rol != "Veterinario" || !veterinario.Activo)
-        {
-            throw new VeterinarioNotFoundException(dto.VeterinarioId);
-        }
-
-        // 3. Validar duración y alineación a bloques de 30 minutos (:00 o :30)
-        ValidarAlineacionHoraria(dto.FechaHora);
-
-        // 4. Validar fecha no pasada
-        if (dto.FechaHora < DateTime.UtcNow)
-        {
-            throw new ValidationException("No se pueden agendar turnos en fechas u horarios pasados.");
-        }
-
-        // 5. Validar disponibilidad semanal configurada del veterinario (RN-10)
-        var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(dto.VeterinarioId, dto.FechaHora, 30);
-        if (!dentroDeDisponibilidad)
-        {
-            throw new HorarioNoDisponibleException("El horario solicitado se encuentra fuera de la disponibilidad configurada del profesional.");
-        }
-
-        // 6. Validar que no haya superposición para el veterinario (RN-08) con sincronización atómica
+        // 1. Validar duración y alineación a bloques de 30 minutos (:00 o :30) antes de consultar BD si la mascota/vet existen
+        // Nota: Mantenemos el orden de validación de dominio dentro del bloqueo por profesional para evitar colisiones concurrentes en la conexión SQLite.
         using (await VeterinarioLockManager.AdquirirBloqueoAsync(dto.VeterinarioId))
         {
+            // 1. Validar Mascota existente y activa
+            var mascota = await _mascotaRepository.GetByIdAsync(dto.MascotaId);
+            if (mascota == null)
+            {
+                throw new MascotaNotFoundException(dto.MascotaId);
+            }
+
+            if (!mascota.Activa)
+            {
+                throw new MascotaInactivaException(dto.MascotaId);
+            }
+
+            // 2. Validar Veterinario habilitado
+            var veterinario = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId);
+            if (veterinario == null || veterinario.Rol != "Veterinario" || !veterinario.Activo)
+            {
+                throw new VeterinarioNotFoundException(dto.VeterinarioId);
+            }
+
+            // 3. Validar duración y alineación a bloques de 30 minutos (:00 o :30)
+            ValidarAlineacionHoraria(dto.FechaHora);
+
+            // 4. Validar fecha no pasada
+            if (dto.FechaHora < DateTime.UtcNow)
+            {
+                throw new ValidationException("No se pueden agendar turnos en fechas u horarios pasados.");
+            }
+
+            // 5. Validar disponibilidad semanal (RN-10) y no superposición (RN-08)
+            var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(dto.VeterinarioId, dto.FechaHora, 30);
+            if (!dentroDeDisponibilidad)
+            {
+                throw new HorarioNoDisponibleException("El horario solicitado se encuentra fuera de la disponibilidad configurada del profesional.");
+            }
+
             var haySuperposicion = await _turnoRepository.ExisteSuperposicionAsync(dto.VeterinarioId, dto.FechaHora);
             if (haySuperposicion)
             {
                 throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
             }
 
-            // 7. Persistir turno manual
+            // 6. Persistir turno manual
             var nuevoTurno = new Turno
             {
                 Id = Guid.NewGuid(),
@@ -171,7 +173,15 @@ public class TurnoService : ITurnoService
                 FechaCreacion = DateTime.UtcNow
             };
 
-            var creado = await _turnoRepository.CreateAsync(nuevoTurno);
+            Turno creado;
+            try
+            {
+                creado = await _turnoRepository.CreateAsync(nuevoTurno);
+            }
+            catch (DbUpdateException ex) when (EsViolacionUnicidadTurnoHorario(ex))
+            {
+                throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
+            }
 
             // Recargar con navegación completa para respuesta
             var turnoCompleto = await _turnoRepository.GetByIdAsync(creado.Id);
@@ -187,91 +197,109 @@ public class TurnoService : ITurnoService
             throw new TurnoNotFoundException(id);
         }
 
-        var targetVetId = dto.VeterinarioId ?? turno.VeterinarioId;
-
-        using (await VeterinarioLockManager.AdquirirBloqueoDobleAsync(turno.VeterinarioId, targetVetId))
+        const int maxReintentosLock = 5;
+        for (var intento = 0; ; intento++)
         {
-            // Recargar estado real desde la base de datos dentro del semáforo para garantizar
-            // que cualquier cambio persistido por otra operación concurrente se refleje efectivamente
-            // aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
-            await _turnoRepository.ReloadAsync(turno);
+            var initialVetId = turno.VeterinarioId;
+            var targetVetId = dto.VeterinarioId ?? initialVetId;
 
-            ValidarAutorizacionModificacionTurno(turno, dto, usuarioId, rolUsuario);
-
-            targetVetId = dto.VeterinarioId ?? turno.VeterinarioId;
-
-            if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            using (await VeterinarioLockManager.AdquirirBloqueoDobleAsync(initialVetId, targetVetId))
             {
-                throw new TurnoEnAtencionException(id);
-            }
+                // Recargar estado real desde la base de datos dentro del semáforo para garantizar
+                // que cualquier cambio persistido por otra operación concurrente se refleje efectivamente
+                // aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
+                await _turnoRepository.ReloadAsync(turno);
 
-            // RN-09: No modificar turno finalizado
-            if (turno.Estado == "Finalizado")
-            {
-                throw new TurnoFinalizadoException("No se puede reprogramar ni modificar un turno finalizado.");
-            }
-
-            if (turno.Estado == "Cancelado")
-            {
-                throw new TurnoYaCanceladoException("No se puede reprogramar un turno cancelado.");
-            }
-
-            // RN-07 y CU-06 (flujo 3e): Validar que la mascota asociada exista y se encuentre activa
-            var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
-            if (mascota == null)
-            {
-                throw new MascotaNotFoundException(turno.MascotaId);
-            }
-
-            if (!mascota.Activa)
-            {
-                throw new MascotaInactivaException(turno.MascotaId);
-            }
-
-            // Validar profesional si cambia
-            if (dto.VeterinarioId.HasValue && dto.VeterinarioId.Value != turno.VeterinarioId)
-            {
-                var vet = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId.Value);
-                if (vet == null || vet.Rol != "Veterinario" || !vet.Activo)
+                if (turno.VeterinarioId != initialVetId && intento < maxReintentosLock)
                 {
-                    throw new VeterinarioNotFoundException(dto.VeterinarioId.Value);
+                    // Otro hilo reasignó el turno antes de adquirir el bloqueo; re-adquirir con el VeterinarioId actual.
+                    continue;
                 }
+
+                ValidarAutorizacionModificacionTurno(turno, dto, usuarioId, rolUsuario);
+
+                targetVetId = dto.VeterinarioId ?? turno.VeterinarioId;
+
+                if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new TurnoEnAtencionException(id);
+                }
+
+                // RN-09: No modificar turno finalizado
+                if (turno.Estado == "Finalizado")
+                {
+                    throw new TurnoFinalizadoException("No se puede reprogramar ni modificar un turno finalizado.");
+                }
+
+                if (turno.Estado == "Cancelado")
+                {
+                    throw new TurnoYaCanceladoException("No se puede reprogramar un turno cancelado.");
+                }
+
+                // RN-07 y CU-06 (flujo 3e): Validar que la mascota asociada exista y se encuentre activa
+                var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
+                if (mascota == null)
+                {
+                    throw new MascotaNotFoundException(turno.MascotaId);
+                }
+
+                if (!mascota.Activa)
+                {
+                    throw new MascotaInactivaException(turno.MascotaId);
+                }
+
+                // Validar profesional si cambia
+                if (dto.VeterinarioId.HasValue && dto.VeterinarioId.Value != turno.VeterinarioId)
+                {
+                    var vet = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId.Value);
+                    if (vet == null || vet.Rol != "Veterinario" || !vet.Activo)
+                    {
+                        throw new VeterinarioNotFoundException(dto.VeterinarioId.Value);
+                    }
+                }
+
+                // Validar alineación y fecha
+                ValidarAlineacionHoraria(dto.FechaHora);
+
+                if (dto.FechaHora < DateTime.UtcNow)
+                {
+                    throw new ValidationException("No se pueden agendar turnos en fechas u horarios pasados.");
+                }
+
+                // Validar disponibilidad
+                var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(targetVetId, dto.FechaHora, 30);
+                if (!dentroDeDisponibilidad)
+                {
+                    throw new HorarioNoDisponibleException("El horario solicitado se encuentra fuera de la disponibilidad configurada del profesional.");
+                }
+
+                // Validar superposición excluyendo el turno actual (protegido contra concurrencia)
+                var haySuperposicion = await _turnoRepository.ExisteSuperposicionAsync(targetVetId, dto.FechaHora, turno.Id);
+                if (haySuperposicion)
+                {
+                    throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
+                }
+
+                // Aplicar cambios
+                turno.FechaHora = dto.FechaHora;
+                turno.VeterinarioId = targetVetId;
+                if (!string.IsNullOrWhiteSpace(dto.MotivoConsulta))
+                {
+                    turno.MotivoConsulta = dto.MotivoConsulta.Trim();
+                }
+
+                try
+                {
+                    await _turnoRepository.UpdateAsync(turno);
+                }
+                catch (DbUpdateException ex) when (EsViolacionUnicidadTurnoHorario(ex))
+                {
+                    throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
+                }
+
+                var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+                return MapToResponseDTO(turnoActualizado ?? turno);
             }
-
-            // Validar alineación y fecha
-            ValidarAlineacionHoraria(dto.FechaHora);
-
-            if (dto.FechaHora < DateTime.UtcNow)
-            {
-                throw new ValidationException("No se pueden agendar turnos en fechas u horarios pasados.");
-            }
-
-            // Validar disponibilidad
-            var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(targetVetId, dto.FechaHora, 30);
-            if (!dentroDeDisponibilidad)
-            {
-                throw new HorarioNoDisponibleException("El horario solicitado se encuentra fuera de la disponibilidad configurada del profesional.");
-            }
-
-            // Validar superposición excluyendo el turno actual (protegido contra concurrencia)
-            var haySuperposicion = await _turnoRepository.ExisteSuperposicionAsync(targetVetId, dto.FechaHora, turno.Id);
-            if (haySuperposicion)
-            {
-                throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
-            }
-
-            // Aplicar cambios
-            turno.FechaHora = dto.FechaHora;
-            turno.VeterinarioId = targetVetId;
-            if (!string.IsNullOrWhiteSpace(dto.MotivoConsulta))
-            {
-                turno.MotivoConsulta = dto.MotivoConsulta.Trim();
-            }
-
-            await _turnoRepository.UpdateAsync(turno);
-
-            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
-            return MapToResponseDTO(turnoActualizado ?? turno);
         }
     }
 
@@ -284,60 +312,77 @@ public class TurnoService : ITurnoService
             throw new TurnoNotFoundException(id);
         }
 
-        using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
+        const int maxReintentosLock = 5;
+        for (var intento = 0; ; intento++)
         {
-            // 2. Recargar estado real desde la base de datos dentro de la sección protegida,
-            // garantizando que cualquier cambio persistido por otra operación concurrente
-            // se refleje efectivamente aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
-            await _turnoRepository.ReloadAsync(turno);
-
-            ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
-
-            // 3. Comprobar que esté en estado Pendiente
-            if (!string.Equals(turno.Estado, "Pendiente", StringComparison.OrdinalIgnoreCase))
+            var initialVetId = turno.VeterinarioId;
+            using (await VeterinarioLockManager.AdquirirBloqueoAsync(initialVetId))
             {
-                throw new TurnoNoPendienteException(id, turno.Estado);
+                // 2. Recargar estado real desde la base de datos dentro de la sección protegida,
+                // garantizando que cualquier cambio persistido por otra operación concurrente
+                // se refleje efectivamente aunque la entidad ya estuviera rastreada en el ChangeTracker de EF Core.
+                await _turnoRepository.ReloadAsync(turno);
+
+                if (turno.VeterinarioId != initialVetId && intento < maxReintentosLock)
+                {
+                    continue;
+                }
+
+                ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
+
+                // 3. Comprobar que esté en estado Pendiente
+                if (!string.Equals(turno.Estado, "Pendiente", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new TurnoNoPendienteException(id, turno.Estado);
+                }
+
+                // 4. Validar que la mascota se encuentre activa (RN-07)
+                var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
+                if (mascota == null)
+                {
+                    throw new MascotaNotFoundException(turno.MascotaId);
+                }
+
+                if (!mascota.Activa)
+                {
+                    throw new MascotaInactivaException(mascota.Id);
+                }
+
+                // 5. Validar que el turno no esté en el pasado
+                if (turno.FechaHora < DateTime.UtcNow)
+                {
+                    throw new ValidationException("No se puede confirmar un turno cuya fecha y hora ya han pasado.");
+                }
+
+                // 6. Verificar disponibilidad semanal del veterinario (RN-10)
+                var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(turno.VeterinarioId, turno.FechaHora, 30);
+                if (!dentroDeDisponibilidad)
+                {
+                    throw new HorarioNoDisponibleException("El horario del turno se encuentra fuera de la disponibilidad configurada del profesional.");
+                }
+
+                // 7. Comprobar que no exista otro turno Confirmado o Finalizado superpuesto (RN-08) con exclusión atómica
+                var haySuperposicion = await _turnoRepository.ExisteSuperposicionAsync(turno.VeterinarioId, turno.FechaHora, turno.Id);
+                if (haySuperposicion)
+                {
+                    throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
+                }
+
+                // 8. Cambiar el estado a Confirmado únicamente cuando todas las validaciones se cumplen
+                turno.Estado = "Confirmado";
+
+                try
+                {
+                    await _turnoRepository.UpdateAsync(turno);
+                }
+                catch (DbUpdateException ex) when (EsViolacionUnicidadTurnoHorario(ex))
+                {
+                    throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
+                }
+
+                var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+                return MapToResponseDTO(turnoActualizado ?? turno);
             }
-
-            // 4. Validar que la mascota se encuentre activa (RN-07)
-            var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
-            if (mascota == null)
-            {
-                throw new MascotaNotFoundException(turno.MascotaId);
-            }
-
-            if (!mascota.Activa)
-            {
-                throw new MascotaInactivaException(mascota.Id);
-            }
-
-            // 5. Validar que el turno no esté en el pasado
-            if (turno.FechaHora < DateTime.UtcNow)
-            {
-                throw new ValidationException("No se puede confirmar un turno cuya fecha y hora ya han pasado.");
-            }
-
-            // 6. Verificar disponibilidad semanal del veterinario (RN-10)
-            var dentroDeDisponibilidad = await _disponibilidadRepository.EstaDentroDeDisponibilidadAsync(turno.VeterinarioId, turno.FechaHora, 30);
-            if (!dentroDeDisponibilidad)
-            {
-                throw new HorarioNoDisponibleException("El horario del turno se encuentra fuera de la disponibilidad configurada del profesional.");
-            }
-
-            // 7. Comprobar que no exista otro turno Confirmado o Finalizado superpuesto (RN-08) con exclusión atómica
-            var haySuperposicion = await _turnoRepository.ExisteSuperposicionAsync(turno.VeterinarioId, turno.FechaHora, turno.Id);
-            if (haySuperposicion)
-            {
-                throw new HorarioNoDisponibleException("El profesional ya cuenta con un turno activo en ese horario.");
-            }
-
-            // 8. Cambiar el estado a Confirmado únicamente cuando todas las validaciones se cumplen
-            turno.Estado = "Confirmado";
-
-            await _turnoRepository.UpdateAsync(turno);
-
-            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
-            return MapToResponseDTO(turnoActualizado ?? turno);
         }
     }
 
@@ -350,35 +395,45 @@ public class TurnoService : ITurnoService
             throw new TurnoNotFoundException(id);
         }
 
-        using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
+        const int maxReintentosLock = 5;
+        for (var intento = 0; ; intento++)
         {
-            // Recargar estado real desde la base de datos dentro de la sección protegida
-            await _turnoRepository.ReloadAsync(turno);
-
-            // 2. Verificar que esté en estado Confirmado
-            if (!string.Equals(turno.Estado, "Confirmado", StringComparison.OrdinalIgnoreCase))
+            var initialVetId = turno.VeterinarioId;
+            using (await VeterinarioLockManager.AdquirirBloqueoAsync(initialVetId))
             {
-                throw new TurnoNoConfirmadoException(id, turno.Estado);
+                // Recargar estado real desde la base de datos dentro de la sección protegida
+                await _turnoRepository.ReloadAsync(turno);
+
+                if (turno.VeterinarioId != initialVetId && intento < maxReintentosLock)
+                {
+                    continue;
+                }
+
+                // 2. Verificar que esté en estado Confirmado
+                if (!string.Equals(turno.Estado, "Confirmado", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new TurnoNoConfirmadoException(id, turno.Estado);
+                }
+
+                // 3. Comprobar que el usuario autenticado corresponde al veterinario asignado y está habilitado
+                await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
+
+                // Validar que la mascota se encuentre activa si está disponible
+                var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
+                if (mascota != null && !mascota.Activa)
+                {
+                    throw new MascotaInactivaException(mascota.Id);
+                }
+
+                // 4. Cambiar el estado a EnAtencion y registrar FechaHoraInicioAtencion en UTC
+                turno.Estado = "EnAtencion";
+                turno.FechaHoraInicioAtencion = DateTime.UtcNow;
+
+                await _turnoRepository.UpdateAsync(turno);
+
+                var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+                return MapToResponseDTO(turnoActualizado ?? turno);
             }
-
-            // 3. Comprobar que el usuario autenticado corresponde al veterinario asignado y está habilitado
-            await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
-
-            // Validar que la mascota se encuentre activa si está disponible
-            var mascota = turno.Mascota ?? await _mascotaRepository.GetByIdAsync(turno.MascotaId);
-            if (mascota != null && !mascota.Activa)
-            {
-                throw new MascotaInactivaException(mascota.Id);
-            }
-
-            // 4. Cambiar el estado a EnAtencion y registrar FechaHoraInicioAtencion en UTC
-            turno.Estado = "EnAtencion";
-            turno.FechaHoraInicioAtencion = DateTime.UtcNow;
-
-            await _turnoRepository.UpdateAsync(turno);
-
-            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
-            return MapToResponseDTO(turnoActualizado ?? turno);
         }
     }
 
@@ -391,40 +446,50 @@ public class TurnoService : ITurnoService
             throw new TurnoNotFoundException(id);
         }
 
-        using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
+        const int maxReintentosLock = 5;
+        for (var intento = 0; ; intento++)
         {
-            // Recargar estado real desde la base de datos dentro de la sección protegida
-            await _turnoRepository.ReloadAsync(turno);
-
-            // 2. Exigir estado EnAtencion
-            if (!string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            var initialVetId = turno.VeterinarioId;
+            using (await VeterinarioLockManager.AdquirirBloqueoAsync(initialVetId))
             {
-                throw new TurnoNoEnAtencionException(id, turno.Estado);
+                // Recargar estado real desde la base de datos dentro de la sección protegida
+                await _turnoRepository.ReloadAsync(turno);
+
+                if (turno.VeterinarioId != initialVetId && intento < maxReintentosLock)
+                {
+                    continue;
+                }
+
+                // 2. Exigir estado EnAtencion
+                if (!string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new TurnoNoEnAtencionException(id, turno.Estado);
+                }
+
+                // 3. Verificar que el usuario autenticado sea el veterinario asignado y esté habilitado
+                await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
+
+                // 4. Comprobar que exista una atención médica vinculada a este turno
+                if (_atencionMedicaRepository == null || !await _atencionMedicaRepository.ExistsByTurnoIdAsync(id))
+                {
+                    throw new TurnoSinAtencionMedicaException(id);
+                }
+
+                // 5. Cambiar el estado a Finalizado y registrar FechaHoraFinAtencion en UTC (no anterior al inicio)
+                var fechaFinUtc = DateTime.UtcNow;
+                if (turno.FechaHoraInicioAtencion.HasValue && fechaFinUtc < turno.FechaHoraInicioAtencion.Value)
+                {
+                    fechaFinUtc = turno.FechaHoraInicioAtencion.Value;
+                }
+
+                turno.Estado = "Finalizado";
+                turno.FechaHoraFinAtencion = fechaFinUtc;
+
+                await _turnoRepository.UpdateAsync(turno);
+
+                var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+                return MapToResponseDTO(turnoActualizado ?? turno);
             }
-
-            // 3. Verificar que el usuario autenticado sea el veterinario asignado y esté habilitado
-            await ValidarVeterinarioAsignadoAsync(turno, usuarioId);
-
-            // 4. Comprobar que exista una atención médica vinculada a este turno
-            if (_atencionMedicaRepository == null || !await _atencionMedicaRepository.ExistsByTurnoIdAsync(id))
-            {
-                throw new TurnoSinAtencionMedicaException(id);
-            }
-
-            // 5. Cambiar el estado a Finalizado y registrar FechaHoraFinAtencion en UTC (no anterior al inicio)
-            var fechaFinUtc = DateTime.UtcNow;
-            if (turno.FechaHoraInicioAtencion.HasValue && fechaFinUtc < turno.FechaHoraInicioAtencion.Value)
-            {
-                fechaFinUtc = turno.FechaHoraInicioAtencion.Value;
-            }
-
-            turno.Estado = "Finalizado";
-            turno.FechaHoraFinAtencion = fechaFinUtc;
-
-            await _turnoRepository.UpdateAsync(turno);
-
-            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
-            return MapToResponseDTO(turnoActualizado ?? turno);
         }
     }
 
@@ -441,40 +506,50 @@ public class TurnoService : ITurnoService
             throw new TurnoNotFoundException(id);
         }
 
-        using (await VeterinarioLockManager.AdquirirBloqueoAsync(turno.VeterinarioId))
+        const int maxReintentosLock = 5;
+        for (var intento = 0; ; intento++)
         {
-            // Recargar estado real desde la base de datos dentro del semáforo
-            await _turnoRepository.ReloadAsync(turno);
-
-            ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
-
-            if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+            var initialVetId = turno.VeterinarioId;
+            using (await VeterinarioLockManager.AdquirirBloqueoAsync(initialVetId))
             {
-                throw new TurnoEnAtencionException(id);
+                // Recargar estado real desde la base de datos dentro del semáforo
+                await _turnoRepository.ReloadAsync(turno);
+
+                if (turno.VeterinarioId != initialVetId && intento < maxReintentosLock)
+                {
+                    continue;
+                }
+
+                ValidarAutorizacionOperacionTurno(turno.VeterinarioId, usuarioId, rolUsuario, turno.Id);
+
+                if (string.Equals(turno.Estado, "EnAtencion", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new TurnoEnAtencionException(id);
+                }
+
+                // RN-09: No cancelar turno finalizado
+                if (turno.Estado == "Finalizado")
+                {
+                    throw new TurnoFinalizadoException("No se puede cancelar un turno finalizado.");
+                }
+
+                if (turno.Estado == "Cancelado")
+                {
+                    throw new TurnoYaCanceladoException("El turno ya se encuentra cancelado.");
+                }
+
+                // Auditoría de cancelación e inmediata liberación del horario (RN-08)
+                turno.Estado = "Cancelado";
+                turno.MotivoCancelacion = dto.MotivoCancelacion.Trim();
+                turno.FechaCancelacion = DateTime.UtcNow;
+                turno.UsuarioCancelacionId = usuarioId;
+                turno.UsuarioCancelacionUsername = username;
+
+                await _turnoRepository.UpdateAsync(turno);
+
+                var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
+                return MapToResponseDTO(turnoActualizado ?? turno);
             }
-
-            // RN-09: No cancelar turno finalizado
-            if (turno.Estado == "Finalizado")
-            {
-                throw new TurnoFinalizadoException("No se puede cancelar un turno finalizado.");
-            }
-
-            if (turno.Estado == "Cancelado")
-            {
-                throw new TurnoYaCanceladoException("El turno ya se encuentra cancelado.");
-            }
-
-            // Auditoría de cancelación e inmediata liberación del horario (RN-08)
-            turno.Estado = "Cancelado";
-            turno.MotivoCancelacion = dto.MotivoCancelacion.Trim();
-            turno.FechaCancelacion = DateTime.UtcNow;
-            turno.UsuarioCancelacionId = usuarioId;
-            turno.UsuarioCancelacionUsername = username;
-
-            await _turnoRepository.UpdateAsync(turno);
-
-            var turnoActualizado = await _turnoRepository.GetByIdAsync(id);
-            return MapToResponseDTO(turnoActualizado ?? turno);
         }
     }
 
@@ -498,132 +573,146 @@ public class TurnoService : ITurnoService
 
     public async Task<IEnumerable<DisponibilidadVeterinarioDTO>> ConfigurarDisponibilidadVeterinarioAsync(Guid veterinarioId, ConfigurarDisponibilidadDTO dto)
     {
-        var veterinario = await _usuarioRepository.GetByIdAsync(veterinarioId);
-        if (veterinario == null || veterinario.Rol != "Veterinario" || !veterinario.Activo)
+        using (await VeterinarioLockManager.AdquirirBloqueoAsync(veterinarioId))
         {
-            throw new VeterinarioNotFoundException(veterinarioId);
+            var veterinario = await _usuarioRepository.GetByIdAsync(veterinarioId);
+            if (veterinario == null || veterinario.Rol != "Veterinario" || !veterinario.Activo)
+            {
+                throw new VeterinarioNotFoundException(veterinarioId);
+            }
+
+            if (dto == null || dto.Disponibilidades == null || !dto.Disponibilidades.Any())
+            {
+                throw new ValidationException("Debe configurar al menos un horario de disponibilidad.");
+            }
+
+            // Validaciones de rangos y no superposición interna
+            var entidades = new List<DisponibilidadVeterinario>();
+            for (var i = 0; i < dto.Disponibilidades.Count; i++)
+            {
+                var item = dto.Disponibilidades[i];
+                if (item == null)
+                {
+                    throw new DisponibilidadInvalidaException("El bloque de disponibilidad horaria no puede ser nulo.");
+                }
+
+                if (!Enum.IsDefined(typeof(DayOfWeek), item.DiaSemana))
+                {
+                    throw new DisponibilidadInvalidaException("El día de la semana especificado no es válido.");
+                }
+
+                var jornada = NormalizarYValidarJornadaDisponibilidad(item.Jornada);
+
+                if (item.HoraInicio < TimeSpan.Zero || item.HoraFin > TimeSpan.FromHours(24))
+                {
+                    throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben encontrarse dentro del día (entre 00:00 y 24:00).");
+                }
+
+                if (item.HoraInicio >= item.HoraFin)
+                {
+                    throw new DisponibilidadInvalidaException("La hora de inicio debe ser anterior a la hora de fin.");
+                }
+
+                if (!EsBloqueHorarioDe30MinutosValido(item.HoraInicio) || !EsBloqueHorarioDe30MinutosValido(item.HoraFin))
+                {
+                    throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben estar alineados a bloques exactos de 30 minutos (:00 o :30), sin segundos ni fracciones.");
+                }
+
+                // Chequeo de duplicidad de día y jornada normalizada
+                if (entidades.Any(d => d.DiaSemana == item.DiaSemana && string.Equals(d.Jornada, jornada, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new DisponibilidadInvalidaException($"Ya se especificó un bloque de disponibilidad para el día {item.DiaSemana} en la jornada {jornada}.");
+                }
+
+                // Chequeo de superposición dentro del mismo día
+                var superpuesto = dto.Disponibilidades
+                    .Where((other, j) => j != i && other != null && other.DiaSemana == item.DiaSemana)
+                    .Any(other => item.HoraInicio < other.HoraFin && item.HoraFin > other.HoraInicio);
+
+                if (superpuesto)
+                {
+                    throw new DisponibilidadInvalidaException($"Existe una superposición de horarios para el día {item.DiaSemana}.");
+                }
+
+                entidades.Add(new DisponibilidadVeterinario
+                {
+                    Id = Guid.NewGuid(),
+                    VeterinarioId = veterinarioId,
+                    DiaSemana = item.DiaSemana,
+                    Jornada = jornada,
+                    HoraInicio = item.HoraInicio,
+                    HoraFin = item.HoraFin,
+                    Activo = true
+                });
+            }
+
+            try
+            {
+                await _disponibilidadRepository.SetDisponibilidadesAsync(veterinarioId, entidades);
+            }
+            catch (DbUpdateException ex) when (EsViolacionUnicidadDisponibilidad(ex))
+            {
+                throw new DisponibilidadInvalidaException("Ya existe un bloque de disponibilidad registrado para el mismo día y jornada.");
+            }
+
+            return entidades.Select(d => new DisponibilidadVeterinarioDTO
+            {
+                DiaSemana = d.DiaSemana,
+                Jornada = d.Jornada,
+                HoraInicio = d.HoraInicio,
+                HoraFin = d.HoraFin
+            }).ToList();
         }
-
-        if (dto == null || dto.Disponibilidades == null || !dto.Disponibilidades.Any())
-        {
-            throw new ValidationException("Debe configurar al menos un horario de disponibilidad.");
-        }
-
-        // Validaciones de rangos y no superposición interna
-        var entidades = new List<DisponibilidadVeterinario>();
-        for (var i = 0; i < dto.Disponibilidades.Count; i++)
-        {
-            var item = dto.Disponibilidades[i];
-            if (item == null)
-            {
-                throw new DisponibilidadInvalidaException("El bloque de disponibilidad horaria no puede ser nulo.");
-            }
-
-            if (!Enum.IsDefined(typeof(DayOfWeek), item.DiaSemana))
-            {
-                throw new DisponibilidadInvalidaException("El día de la semana especificado no es válido.");
-            }
-
-            var jornada = NormalizarYValidarJornadaDisponibilidad(item.Jornada);
-
-            if (item.HoraInicio < TimeSpan.Zero || item.HoraFin > TimeSpan.FromHours(24))
-            {
-                throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben encontrarse dentro del día (entre 00:00 y 24:00).");
-            }
-
-            if (item.HoraInicio >= item.HoraFin)
-            {
-                throw new DisponibilidadInvalidaException("La hora de inicio debe ser anterior a la hora de fin.");
-            }
-
-            if (!EsBloqueHorarioDe30MinutosValido(item.HoraInicio) || !EsBloqueHorarioDe30MinutosValido(item.HoraFin))
-            {
-                throw new DisponibilidadInvalidaException("Los horarios de disponibilidad deben estar alineados a bloques exactos de 30 minutos (:00 o :30), sin segundos ni fracciones.");
-            }
-
-            // Chequeo de superposición dentro del mismo día
-            var superpuesto = dto.Disponibilidades
-                .Where((other, j) => j != i && other != null && other.DiaSemana == item.DiaSemana)
-                .Any(other => item.HoraInicio < other.HoraFin && item.HoraFin > other.HoraInicio);
-
-            if (superpuesto)
-            {
-                throw new DisponibilidadInvalidaException($"Existe una superposición de horarios para el día {item.DiaSemana}.");
-            }
-
-            entidades.Add(new DisponibilidadVeterinario
-            {
-                Id = Guid.NewGuid(),
-                VeterinarioId = veterinarioId,
-                DiaSemana = item.DiaSemana,
-                Jornada = jornada,
-                HoraInicio = item.HoraInicio,
-                HoraFin = item.HoraFin,
-                Activo = true
-            });
-        }
-
-        await _disponibilidadRepository.SetDisponibilidadesAsync(veterinarioId, entidades);
-
-        return entidades.Select(d => new DisponibilidadVeterinarioDTO
-        {
-            DiaSemana = d.DiaSemana,
-            Jornada = d.Jornada,
-            HoraInicio = d.HoraInicio,
-            HoraFin = d.HoraFin
-        }).ToList();
     }
 
     public async Task<GenerarTurnosCronicosResponseDTO> GenerarTurnosSeguimientoCronicoAsync(GenerarTurnosCronicosDTO dto)
     {
-        // 1. Validar Mascota activa
-        var mascota = await _mascotaRepository.GetByIdAsync(dto.MascotaId);
-        if (mascota == null)
-        {
-            throw new MascotaNotFoundException(dto.MascotaId);
-        }
-
-        if (!mascota.Activa)
-        {
-            throw new MascotaInactivaException(dto.MascotaId);
-        }
-
-        // 2. Validar Veterinario
-        var vet = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId);
-        if (vet == null || vet.Rol != "Veterinario" || !vet.Activo)
-        {
-            throw new VeterinarioNotFoundException(dto.VeterinarioId);
-        }
-
-        // 3. Control de duplicados si viene vinculado a una atención médica
-        if (dto.AtencionMedicaId.HasValue && dto.AtencionMedicaId.Value != Guid.Empty)
-        {
-            var yaGenerado = await _turnoRepository.ExisteSeguimientoParaAtencionAsync(dto.AtencionMedicaId.Value);
-            if (yaGenerado)
-            {
-                throw new SeguimientoCronicoDuplicadoException("Ya existe un plan de seguimiento generado para la atención médica indicada.");
-            }
-        }
-
-        // 4. Calcular fechas ideales para un horizonte de 6 meses
-        var fechasIdeales = CalcularFechasIdeales(dto.FechaAtencion, dto.Frecuencia);
-
-        // 5. Cargar disponibilidad semanal del profesional
-        var disponibilidades = (await _disponibilidadRepository.GetByVeterinarioIdAsync(dto.VeterinarioId)).ToList();
-        if (!disponibilidades.Any())
-        {
-            throw new ValidationException("El veterinario no tiene horarios de disponibilidad configurados.");
-        }
-
-        var jornadaPreferida = dto.JornadaPreferida.Trim();
-        var turnosParaCrear = new List<Turno>();
-        var turnosAsignadosDTO = new List<TurnoResponseDTO>();
-        var fechasSinCupo = new List<DateTime>();
-        var horariosOcupadosEnBatch = new HashSet<DateTime>();
-
-        // 6. Para cada fecha ideal, buscar bloque de 30m libre hasta 7 días posteriores dentro de la jornada preferida
         using (await VeterinarioLockManager.AdquirirBloqueoAsync(dto.VeterinarioId))
         {
+            // 1. Validar Mascota activa
+            var mascota = await _mascotaRepository.GetByIdAsync(dto.MascotaId);
+            if (mascota == null)
+            {
+                throw new MascotaNotFoundException(dto.MascotaId);
+            }
+
+            if (!mascota.Activa)
+            {
+                throw new MascotaInactivaException(dto.MascotaId);
+            }
+
+            // 2. Validar Veterinario
+            var vet = await _usuarioRepository.GetByIdAsync(dto.VeterinarioId);
+            if (vet == null || vet.Rol != "Veterinario" || !vet.Activo)
+            {
+                throw new VeterinarioNotFoundException(dto.VeterinarioId);
+            }
+
+            // 3. Calcular fechas ideales para un horizonte de 6 meses (validando frecuencia)
+            var fechasIdeales = CalcularFechasIdeales(dto.FechaAtencion, dto.Frecuencia);
+
+            var jornadaPreferida = dto.JornadaPreferida.Trim();
+            var turnosParaCrear = new List<Turno>();
+            var turnosAsignadosDTO = new List<TurnoResponseDTO>();
+            var fechasSinCupo = new List<DateTime>();
+            var horariosOcupadosEnBatch = new HashSet<DateTime>();
+
+            // 4. Verificar duplicados, leer disponibilidad y reservar slots atómicamente
+            if (dto.AtencionMedicaId.HasValue && dto.AtencionMedicaId.Value != Guid.Empty)
+            {
+                var yaGenerado = await _turnoRepository.ExisteSeguimientoParaAtencionAsync(dto.AtencionMedicaId.Value);
+                if (yaGenerado)
+                {
+                    throw new SeguimientoCronicoDuplicadoException("Ya existe un plan de seguimiento generado para la atención médica indicada.");
+                }
+            }
+
+            var disponibilidades = (await _disponibilidadRepository.GetByVeterinarioIdAsync(dto.VeterinarioId)).ToList();
+            if (!disponibilidades.Any())
+            {
+                throw new ValidationException("El veterinario no tiene horarios de disponibilidad configurados.");
+            }
+
             foreach (var fechaIdeal in fechasIdeales)
             {
                 var asignado = false;
@@ -727,20 +816,27 @@ public class TurnoService : ITurnoService
             // 7. Persistir asignaciones parciales o totales
             if (turnosParaCrear.Any())
             {
-                await _turnoRepository.CreateRangeAsync(turnosParaCrear);
+                try
+                {
+                    await _turnoRepository.CreateRangeAsync(turnosParaCrear);
+                }
+                catch (DbUpdateException ex) when (EsViolacionUnicidadSeguimientoCronico(ex))
+                {
+                    throw new SeguimientoCronicoDuplicadoException("Ya existe un plan de seguimiento generado para la atención médica indicada.");
+                }
             }
+
+            var mensaje = fechasSinCupo.Any()
+                ? $"Se generaron {turnosAsignadosDTO.Count} turnos de seguimiento. {fechasSinCupo.Count} fecha(s) no contaron con cupo disponible dentro del horizonte tolerado."
+                : $"Se generaron exitosamente los {turnosAsignadosDTO.Count} turnos de seguimiento para los próximos 6 meses.";
+
+            return new GenerarTurnosCronicosResponseDTO
+            {
+                TurnosGenerados = turnosAsignadosDTO,
+                FechasPendientes = fechasSinCupo,
+                Mensaje = mensaje
+            };
         }
-
-        var mensaje = fechasSinCupo.Any()
-            ? $"Se generaron {turnosAsignadosDTO.Count} turnos de seguimiento. {fechasSinCupo.Count} fecha(s) no contaron con cupo disponible dentro del horizonte tolerado."
-            : $"Se generaron exitosamente los {turnosAsignadosDTO.Count} turnos de seguimiento para los próximos 6 meses.";
-
-        return new GenerarTurnosCronicosResponseDTO
-        {
-            TurnosGenerados = turnosAsignadosDTO,
-            FechasPendientes = fechasSinCupo,
-            Mensaje = mensaje
-        };
     }
 
     private static List<DateTime> CalcularFechasIdeales(DateTime fechaInicio, string frecuencia)
@@ -919,5 +1015,29 @@ public class TurnoService : ITurnoService
             FechaHoraFinAtencion = turno.FechaHoraFinAtencion,
             FechaCreacion = turno.FechaCreacion
         };
+    }
+
+    private static bool EsViolacionUnicidadTurnoHorario(DbUpdateException ex)
+    {
+        var mensaje = $"{ex.Message} {ex.InnerException?.Message}";
+        return mensaje.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase) &&
+               (mensaje.Contains("Turnos.VeterinarioId", StringComparison.OrdinalIgnoreCase) ||
+                mensaje.Contains("IX_Turnos_VeterinarioId_FechaHora", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool EsViolacionUnicidadDisponibilidad(DbUpdateException ex)
+    {
+        var mensaje = $"{ex.Message} {ex.InnerException?.Message}";
+        return mensaje.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase) &&
+               (mensaje.Contains("DisponibilidadesVeterinarios", StringComparison.OrdinalIgnoreCase) ||
+                mensaje.Contains("IX_DisponibilidadesVeterinarios_VeterinarioId_DiaSemana_Jornada", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool EsViolacionUnicidadSeguimientoCronico(DbUpdateException ex)
+    {
+        var mensaje = $"{ex.Message} {ex.InnerException?.Message}";
+        return mensaje.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase) &&
+               (mensaje.Contains("Turnos.AtencionMedicaId", StringComparison.OrdinalIgnoreCase) ||
+                mensaje.Contains("IX_Turnos_AtencionMedicaId_FechaHora", StringComparison.OrdinalIgnoreCase));
     }
 }
