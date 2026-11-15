@@ -164,7 +164,8 @@ public class ReporteService : IReporteService
         // 5. Cálculo módulo Mascotas
         if (tiposNormalizados.Any(t => t.Equals("Mascotas", StringComparison.OrdinalIgnoreCase)))
         {
-            var mascotas = (await _mascotaRepository.GetAllAsync()).ToList();
+            // Solo mascotas con FechaRegistro dentro del período (altas); los históricos con FechaRegistro NULL no se contabilizan.
+            var mascotas = (await _mascotaRepository.GetByRangoFechasAsync(desde, hasta)).ToList();
             totalMascotas = mascotas.Count;
 
             detalle.Mascotas = new MetricasMascotasDTO

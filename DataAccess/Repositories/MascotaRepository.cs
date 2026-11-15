@@ -59,6 +59,7 @@ public class MascotaRepository : IMascotaRepository
     {
         mascota.Id = Guid.NewGuid();
         mascota.Activa = true;
+        mascota.FechaRegistro ??= DateTime.UtcNow;
         await _context.Mascotas.AddAsync(mascota);
         await _context.SaveChangesAsync();
         return mascota;
@@ -97,6 +98,17 @@ public class MascotaRepository : IMascotaRepository
             await transaction.RollbackAsync();
             throw;
         }
+    }
+
+    public async Task<IEnumerable<Mascota>> GetByRangoFechasAsync(DateTime desde, DateTime hasta)
+    {
+        // Las mascotas históricas con FechaRegistro NULL (alta desconocida) quedan excluidas.
+        return await _context.Mascotas
+            .AsNoTracking()
+            .Include(m => m.Dueno)
+            .Where(m => m.FechaRegistro != null && m.FechaRegistro >= desde && m.FechaRegistro <= hasta)
+            .OrderBy(m => m.FechaRegistro)
+            .ToListAsync();
     }
 
     public async Task<IEnumerable<Mascota>> BuscarAsync(string criterio)

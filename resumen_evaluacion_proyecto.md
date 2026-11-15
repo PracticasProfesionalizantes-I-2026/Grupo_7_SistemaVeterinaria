@@ -3,7 +3,10 @@
 **Repositorio:** `Grupo_7_SistemaVeterinaria`
 **Fecha de evaluación:** 08/11/2026
 **Alcance:** documentación de negocio, casos de uso, README, arquitectura, código fuente y suite de pruebas.
-**Verificación técnica:** `dotnet test SistemaVeterinaria.slnx` → **539 pruebas aprobadas (314 unitarias + 225 de integración), 0 fallidas.**
+**Verificación técnica (08/11/2026):** `dotnet test SistemaVeterinaria.slnx` → **539 pruebas aprobadas (314 unitarias + 225 de integración), 0 fallidas.**
+
+> [!NOTE]
+> **Actualización posterior a la evaluación (documento conservado como registro histórico):** las recomendaciones **1 a 7 y 9** de la sección 4.3 fueron implementadas y verificadas; la suite vigente es de **687 pruebas superadas (400 unitarias + 287 de integración)**. La recomendación **8** (refactorización de servicios y estados tipados) **sigue pendiente**. Las brechas descritas abajo sobre RN-09, atomicidad, métricas de mascotas, concurrencia de agenda, disponibilidad no atómica, autorización horizontal, secreto JWT, rate limiting y documentación (Scalar y conteo de pruebas) corresponden al estado del 08/11/2026 y ya están resueltas; ver `SEGUIMIENTO_CORRECCIONES.md` (sección 5) y `issues_github_pendientes.md`. La documentación vigente indica que **Scalar no está implementado** y que la especificación OpenAPI se publica en `/openapi/v1.json`.
 
 ---
 

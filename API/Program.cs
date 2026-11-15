@@ -167,7 +167,7 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// Configuración de OpenAPI y Scalar
+// Configuración de OpenAPI (especificación nativa en /openapi/v1.json; Scalar no está implementado)
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

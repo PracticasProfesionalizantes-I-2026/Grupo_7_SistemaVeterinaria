@@ -340,6 +340,74 @@ public class MascotaServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_DatosValidos_AsignaFechaRegistroUtcExplicita()
+    {
+        var duenoId = Guid.NewGuid();
+        _duenoRepoMock.Setup(r => r.GetByIdAsync(duenoId)).ReturnsAsync(new Dueno { Id = duenoId, Nombre = "A", Apellido = "B" });
+        _mascotaRepoMock.Setup(r => r.CreateAsync(It.IsAny<Mascota>())).ReturnsAsync((Mascota m) => m);
+
+        var antes = DateTime.UtcNow;
+        var result = await _service.CreateAsync(new MascotaCreateDTO
+        {
+            DuenoId = duenoId,
+            Nombre = "Nina",
+            Especie = "Perro",
+            Raza = "Mestizo",
+            Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.AddYears(-1),
+            Peso = 5m
+        });
+        var despues = DateTime.UtcNow;
+
+        Assert.NotNull(result.FechaRegistro);
+        Assert.InRange(result.FechaRegistro!.Value, antes, despues);
+        _mascotaRepoMock.Verify(r => r.CreateAsync(It.Is<Mascota>(m => m.FechaRegistro.HasValue)), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConservaFechaRegistroOriginal()
+    {
+        var mascotaId = Guid.NewGuid();
+        var registro = new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc);
+        var mascota = new Mascota
+        {
+            Id = mascotaId, Nombre = "X", Especie = "Perro", Raza = "R", Sexo = "Macho",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-1), Peso = 10m, Activa = true, FechaRegistro = registro
+        };
+        _mascotaRepoMock.Setup(r => r.GetByIdTrackedAsync(mascotaId)).ReturnsAsync(mascota);
+        _mascotaRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Mascota>())).ReturnsAsync((Mascota m) => m);
+
+        var result = await _service.UpdateAsync(mascotaId, new MascotaUpdateDTO
+        {
+            Nombre = "Y", Especie = "Gato", Raza = "R2", Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-2), Peso = 11m
+        });
+
+        Assert.Equal(registro, result.FechaRegistro);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_MascotaHistoricaSinFechaRegistro_MantieneNull()
+    {
+        var mascotaId = Guid.NewGuid();
+        var mascota = new Mascota
+        {
+            Id = mascotaId, Nombre = "X", Especie = "Perro", Raza = "R", Sexo = "Macho",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-1), Peso = 10m, Activa = true, FechaRegistro = null
+        };
+        _mascotaRepoMock.Setup(r => r.GetByIdTrackedAsync(mascotaId)).ReturnsAsync(mascota);
+        _mascotaRepoMock.Setup(r => r.UpdateAsync(It.IsAny<Mascota>())).ReturnsAsync((Mascota m) => m);
+
+        var result = await _service.UpdateAsync(mascotaId, new MascotaUpdateDTO
+        {
+            Nombre = "Y", Especie = "Gato", Raza = "R2", Sexo = "Hembra",
+            FechaNacimiento = DateTime.UtcNow.Date.AddYears(-2), Peso = 11m
+        });
+
+        Assert.Null(result.FechaRegistro);
+    }
+
+    [Fact]
     public async Task UpdateAsync_DatosValidos_AplicaTrimYRetornaResponseDTO()
     {
         var mascotaId = Guid.NewGuid();

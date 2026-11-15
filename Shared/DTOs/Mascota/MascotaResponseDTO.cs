@@ -13,5 +13,7 @@ public class MascotaResponseDTO
     public decimal Peso { get; set; }
     public bool Activa { get; set; }
     public DateTime? FechaUltimaVisita { get; set; }
+    /// <summary>Fecha de alta (UTC). NULL en mascotas históricas con alta desconocida.</summary>
+    public DateTime? FechaRegistro { get; set; }
     public string? Observaciones { get; set; }
 }

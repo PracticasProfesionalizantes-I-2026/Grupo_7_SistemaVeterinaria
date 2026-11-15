@@ -1,6 +1,25 @@
 @API_HostAddress = http://localhost:5274
 
-GET {{API_HostAddress}}/weatherforecast/
+### Especificación OpenAPI (solo entorno Development)
+GET {{API_HostAddress}}/openapi/v1.json
 Accept: application/json
+
+###
+
+### Login (usuarios de demostración: ver README.md, sección 3)
+# Limitado por rate limiting (429 al superar el límite configurado en RateLimiting)
+POST {{API_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "usuarioOEmail": "admin",
+  "password": "<CONTRASENA_DE_DEMO_DEL_README>"
+}
+
+###
+
+### Verificar sesión (reemplazar <TOKEN> por el JWT obtenido en el login)
+GET {{API_HostAddress}}/api/auth/verificar-sesion
+Authorization: Bearer <TOKEN>
 
 ###

@@ -94,6 +94,8 @@ public class VeterinariaDbContext : DbContext
             entity.Property(m => m.Peso).HasPrecision(6, 2);
             entity.Property(m => m.Activa).IsRequired().HasDefaultValue(true);
             entity.Property(m => m.Observaciones).HasMaxLength(500);
+            // Nullable: las mascotas históricas conservan NULL (alta desconocida)
+            entity.Property(m => m.FechaRegistro).IsRequired(false);
 
             // Relación hija 1:N con DeleteBehavior.Restrict
             entity.HasOne(m => m.Dueno)

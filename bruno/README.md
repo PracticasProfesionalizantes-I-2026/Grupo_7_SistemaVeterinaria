@@ -22,3 +22,11 @@ Colección oficial de solicitudes HTTP para [Bruno](https://www.usebruno.com/) a
 - **`usuarios/`**: Administración de cuentas, filtros, desbloqueo y restablecimiento de contraseña temporal por el `Administrador` (`CU-10`, `ERR-03`).
 - **`reportes/`**: Generación y consulta de reportes analíticos consolidados y modulares para el `Administrador` (`CU-11`, `VAL-09`).
 
+
+## 3. Notas de Configuración y Ejecución
+
+- **Clave JWT:** antes de iniciar la API debe estar configurada con .NET User Secrets o la variable de entorno `JwtSettings__SecretKey` (ver `README.md`, sección 2.2). La colección no contiene ni requiere claves.
+- **Rate limiting de autenticación:** `login` y `cambiar-password-temporal` admiten por defecto **10 solicitudes por minuto por IP** (`RateLimiting:AuthPermitLimit` / `AuthWindowSeconds` en `API/appsettings.json`). Si al ejecutar la carpeta `auth/` completa se recibe `429 Too Many Requests`, esperar un minuto o elevar temporalmente el límite en la configuración local.
+- **Documentación de la API:** la especificación OpenAPI está en `/openapi/v1.json` (solo `Development`). Scalar no está implementado.
+- **Autorización por rol:** `atenciones-medicas/` e `historia-clinica/` requieren `Veterinario`; `usuarios/` y `reportes/`, `Administrador`; en `turnos/`, un veterinario solo puede operar sobre sus propios turnos (`403` en caso contrario).
+- **Reportes de mascotas:** cuentan las altas con `FechaRegistro` dentro del período; las mascotas históricas con `FechaRegistro = NULL` no se contabilizan.

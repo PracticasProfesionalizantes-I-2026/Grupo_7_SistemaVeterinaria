@@ -793,7 +793,7 @@ Se identificaron un total de **38 problemas**, clasificados según su nivel de p
 - **Hallazgos técnicos relevados:** **38**
   - **Completadas:** **29 / 38** (`SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `SEC-05`, `SEC-06`, `VAL-01`, `VAL-02`, `VAL-04`, `VAL-05`, `VAL-06`, `VAL-07`, `VAL-08`, `VAL-09`, `ERR-01`, `ERR-02`, `ERR-03`, `BUG-02`, `BUG-03`, `BUG-04`, `BUG-05`, `BUG-06`, `DOC-01`, `DOC-02`, `DOC-03`, `DOC-04`, `DOC-05`, `TEST-01`, `VAL-03`).
   - **Postergadas:** **9 / 38** (`BD-01`, `BD-02`, `BD-03`, `VAL-10`, `ERR-04`, `BUG-01`, `SMELL-01`, `SMELL-02`, `SMELL-03`).
-- **Resultado final de la suite de pruebas automatizadas del backend (`dotnet test SistemaVeterinaria.slnx`):** **640 / 640 pruebas aprobadas** (`376` unitarias en `BusinessLogic.Tests` + `264` de integración en `API.Tests`, ejecutadas y verificadas con éxito sin errores ni advertencias).
+- **Resultado de la suite de pruebas automatizadas al cierre de la entrega original (`dotnet test SistemaVeterinaria.slnx`):** **640 / 640 pruebas aprobadas** (`376` unitarias en `BusinessLogic.Tests` + `264` de integración en `API.Tests`, ejecutadas y verificadas con éxito sin errores ni advertencias). *Dato histórico: tras las recomendaciones posteriores la suite vigente es **687 / 687** (`400` + `287`); ver sección 5.*
 
 ---
 
@@ -904,3 +904,56 @@ Durante la etapa de preparación final para la entrega técnica se realizaron la
 
 
 
+
+---
+
+## 5. Recomendaciones de la Auditoría Técnica Integral (Estado Actual)
+
+> **Nota de lectura histórica:** las secciones 1 a 4 conservan el registro original de la entrega (por ejemplo, **640 / 640** pruebas y los hallazgos `BUG-01`, `BD-02` y `BD-03` como "Postergada"). Esta sección 5 registra lo resuelto con posterioridad y **prevalece** sobre esas menciones.
+
+**Estado de la suite al cierre de esta actualización:** **687 / 687 pruebas superadas** (`400` unitarias en `BusinessLogic.Tests` + `287` de integración en `API.Tests`) y compilación sin errores.
+
+| # | Recomendación | Estado | Referencia |
+|:-:|---|---|---|
+| 1 | Máquina de estados del turno (`Pendiente → Confirmado → EnAtencion → Finalizado/Cancelado`) | Completada | Sección 4.2 |
+| 2 | Atomicidad de la atención médica y del seguimiento crónico | Completada | Sección 4.3 |
+| 3 | Historia clínica como proyección derivada (decisión documentada) | Completada | Sección 4.1 |
+| 4 | `FechaRegistro` de mascotas y métricas filtradas por período | Completada | Sección 5.1 |
+| 5 | Integridad de agenda: bloqueos, transacciones e índices únicos | Completada | Sección 5.2 |
+| 6 | Autorización horizontal en turnos | Completada | Sección 5.3 |
+| 7 | Secreto JWT externalizado y rate limiting en autenticación | Completada | Sección 5.4 |
+| 8 | Refactorización de servicios extensos y estados tipados (`SMELL-01`, `SMELL-02`, `SMELL-03`) | **Pendiente** | Sección 5.6 |
+| 9 | Actualización de documentación (README, AGENTS.md y anexos) | Completada | Sección 5.5 |
+
+### 5.1. Recomendación 4 — Métricas de mascotas y filtrado por fechas
+- **Resuelve:** `BUG-01` y, parcialmente, `BD-02` (solo para `Mascota`).
+- **Implementación:** `Mascota.FechaRegistro` (`DateTime?`, UTC) se asigna con `DateTime.UtcNow` al registrar y es inmutable en las actualizaciones. `MascotaRepository.GetByRangoFechasAsync(desde, hasta)` filtra por esa fecha y `ReporteService` lo usa en el módulo `Mascotas`. `MascotaResponseDTO` expone `FechaRegistro`.
+- **Migración:** `20261115052125_AddFechaRegistroMascota` (solo `AddColumn` `TEXT NULL`, sin tocar filas existentes).
+- **Datos históricos:** las 10 mascotas previas conservan `FechaRegistro = NULL`. No se estimó ninguna fecha (ni la del dueño ni la de la primera atención) porque no existe un dato verificable. **No se contabilizan en reportes de altas por período.**
+- **Pruebas:** unitarias en `ReporteServiceTests` y `MascotaServiceTests`; integración en `MascotasFechaRegistroTests`.
+
+### 5.2. Recomendación 5 — Integridad de agenda y disponibilidad
+- **Resuelve:** la parte de concurrencia de `BD-03`.
+- **Etapa A (lógica):** `VeterinarioLockManager` serializa por veterinario y por turno las operaciones críticas; el reemplazo de disponibilidad es transaccional y las validaciones se ejecutan dentro de los bloqueos.
+- **Etapa B (pruebas):** pruebas de concurrencia e integración con SQLite (reservas, seguimientos y reemplazos simultáneos), sin errores 500 ni duplicados.
+- **Etapa C (índices únicos):** migración `20261114202200_AddUniqueIndexesTurnosYDisponibilidad` (solo índices):
+  - `IX_Turnos_VeterinarioId_FechaHora` (filtrado: `Confirmado`, `EnAtencion`, `Finalizado`).
+  - `IX_DisponibilidadesVeterinarios_VeterinarioId_DiaSemana_Jornada`.
+  - `IX_Turnos_AtencionMedicaId_FechaHora` (excluye `Cancelado` y nulos).
+  - Las violaciones de unicidad se traducen a excepciones de dominio con **409**.
+- **Limitación conocida:** el bloqueo en memoria protege una sola instancia del proceso; la garantía entre instancias la dan los índices únicos.
+
+### 5.3. Recomendación 6 — Autorización horizontal en turnos
+Un `Veterinario` solo puede operar sobre sus propios turnos y no puede reasignarlos (`TurnoVeterinarioNoAutorizadoException` → **403**). `Recepcionista` conserva la gestión de cualquier turno. Pruebas unitarias en `TurnoServiceTests` y de integración en `TurnosEndpointsTests`.
+
+### 5.4. Recomendación 7 — Secreto JWT y rate limiting
+- **Secreto JWT:** eliminado de `appsettings.Development.json`; se configura con .NET User Secrets (`UserSecretsId` en `API/API.csproj`) o con la variable de entorno `JwtSettings__SecretKey`; mínimo 32 bytes UTF-8, y la API rechaza iniciar sin él.
+- **Rate limiting:** política nativa `AuthPolicy` (ventana fija por IP) en `POST /api/auth/login` y `POST /api/auth/cambiar-password-temporal`, con respuesta **429** y parámetros `RateLimiting:AuthPermitLimit` / `AuthWindowSeconds`. Compatible con el bloqueo de cuenta a los 5 intentos fallidos. Las pruebas de integración elevan el límite para no interferir.
+
+### 5.5. Recomendación 9 — Documentación
+- Se actualizaron `README.md`, `AGENTS.md`, `Migrations/README.md`, `API/API.http`, `issues_github_pendientes.md`, `resumen_evaluacion_proyecto.md` y este documento.
+- **OpenAPI:** la especificación se publica en `/openapi/v1.json` (solo `Development`). **Scalar no está implementado ni instalado** y la documentación se corrigió para reflejarlo (alternativa A, sin agregar dependencias).
+- Se corrigieron conteos de pruebas, puertos (`5274` / `7207`), endpoints inexistentes (`/weatherforecast`) y se documentaron endpoints, roles, configuración JWT, rate limiting, SQLite y las 11 migraciones.
+
+### 5.6. Recomendación 8 — Pendiente
+La refactorización de servicios extensos (`AtencionMedicaService`, `TurnoService`, `ReporteService`), la extracción de colaboradores (seguimiento crónico, mapeo y cálculo de fechas), la eliminación de duplicación (`SMELL-02`), el reemplazo de *magic strings* de estado y rol por tipos fuertes (`SMELL-03`) y el traslado de filtrados LINQ de los servicios a los repositorios (`SMELL-01`) **siguen pendientes**. No afectan el comportamiento funcional vigente.

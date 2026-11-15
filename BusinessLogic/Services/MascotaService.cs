@@ -83,7 +83,8 @@ public class MascotaService : IMascotaService
             Peso = dto.Peso,
             Activa = true,
             Observaciones = string.IsNullOrWhiteSpace(dto.Observaciones) ? null : dto.Observaciones.Trim(),
-            FechaUltimaVisita = null
+            FechaUltimaVisita = null,
+            FechaRegistro = DateTime.UtcNow
         };
 
         var mascotaCreada = await _mascotaRepository.CreateAsync(nuevaMascota);
@@ -286,6 +287,7 @@ public class MascotaService : IMascotaService
             Peso = mascota.Peso,
             Activa = mascota.Activa,
             FechaUltimaVisita = mascota.FechaUltimaVisita,
+            FechaRegistro = mascota.FechaRegistro,
             Observaciones = mascota.Observaciones
         };
     }
